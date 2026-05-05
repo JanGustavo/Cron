@@ -1,0 +1,44 @@
+# Binários
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Diretório de build
+/build/
+/dist/
+
+# Dependências Go
+/vendor/
+
+# Arquivos de ambiente e chaves sensíveis
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.cert
+*.crt
+
+# Arquivos temporários do OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+
+# IDEs / Editores
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

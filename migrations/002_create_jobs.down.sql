@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS executions;
+DROP TABLE IF EXISTS jobs;
