@@ -12,4 +12,3 @@ package router
 //   PATCH /v1/jobs/{id}
 //   DELETE /v1/jobs/{id}
 //   GET  /v1/jobs/{id}/executions
-

@@ -9,12 +9,12 @@ import (
 )
 
 // O parser padrão que a gente vai usar pro projeto todo.
-// Usamos o formato tradicional (5 campos) pra ficar o mais compatível possível 
+// Usamos o formato tradicional (5 campos) pra ficar o mais compatível possível
 // com o crontab do linux. O Descriptor é pra suportar @hourly, @daily, etc.
 var parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
 
 // Validate checa se a string do cron tá no formato certo.
-// É super importante validar antes de salvar no banco pra evitar 
+// É super importante validar antes de salvar no banco pra evitar
 // que o worker crashe depois na hora de tentar agendar.
 func Validate(expr string) error {
 	_, err := parser.Parse(expr)
@@ -44,7 +44,7 @@ func NextRun(expr, timezone string) (time.Time, error) {
 }
 
 // ParseInterval tenta dar uma facilitada com um parser mais "humano".
-// O front tinha pedido pra gente suportar uns atalhos tipo "every:15m" 
+// O front tinha pedido pra gente suportar uns atalhos tipo "every:15m"
 // ao invés de sempre ter que mandar "*/15 * * * *".
 func ParseInterval(input string) (string, error) {
 	// Se já for uma macro que o pacote entende de fábrica (tipo @hourly), passa direto
@@ -55,12 +55,12 @@ func ParseInterval(input string) (string, error) {
 	// Lida com a nossa sintaxe inventada (every:XXm ou every:XXh)
 	if strings.HasPrefix(input, "every:") {
 		val := strings.TrimPrefix(input, "every:")
-		
+
 		if strings.HasSuffix(val, "m") {
 			mins := strings.TrimSuffix(val, "m")
 			return fmt.Sprintf("*/%s * * * *", mins), nil
 		}
-		
+
 		if strings.HasSuffix(val, "h") {
 			hours := strings.TrimSuffix(val, "h")
 			return fmt.Sprintf("0 */%s * * *", hours), nil

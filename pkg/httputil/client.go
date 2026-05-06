@@ -6,4 +6,3 @@ package httputil
 //   - Retorna status code, body truncado em 2KB e duração em ms
 //   - Status >= 400 NÃO é tratado como error aqui — decisão do Worker
 // Client reutilizado (connection pooling automático do Go).
-

@@ -7,4 +7,3 @@ package auth
 //
 // REGRA DE OURO: plain text NUNCA é persistido.
 // Banco armazena APENAS o hash.
-

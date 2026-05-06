@@ -7,4 +7,3 @@ package middleware
 //   3. Consultar UserRepository.FindProjectByKeyHash(hash)
 //   4. Inválido → 401. Válido → injeta Project no context da request.
 // Nenhum Handler faz autenticação — ela vem resolvida no context.
-
