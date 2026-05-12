@@ -31,6 +31,15 @@ func main() {
 	r.Use(middleware.Recoverer) // previne crashes
 
 	// 4. rotas
+	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("content-type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"service": "cronflow-api",
+			"health":  "/health",
+		})
+	})
+
 	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		//testa a conexão com o banco
 		if err := db.Ping(); err != nil {

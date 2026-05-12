@@ -404,7 +404,7 @@ Por que `FROM scratch`? O binário Go compilado com `CGO_ENABLED=0` é completam
 | Variável | Padrão | Descrição |
 |----------|--------|-----------|
 | `APP_ENV` | `development` | `development` ou `production` |
-| `APP_PORT` | `8080` | Porta do servidor HTTP |
+| `PORT` | `8080` | Porta do servidor HTTP |
 | `DATABASE_URL` | — | Connection string PostgreSQL |
 | `REDIS_URL` | `localhost:6379` | Endereço do Redis |
 | `SCHEDULER_INTERVAL` | `30s` | Frequência do loop do Scheduler |
