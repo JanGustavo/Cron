@@ -2,73 +2,97 @@ package cronparser
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/robfig/cron/v3"
 )
 
-// O parser padrão que a gente vai usar pro projeto todo.
-// Usamos o formato tradicional (5 campos) pra ficar o mais compatível possível
-// com o crontab do linux. O Descriptor é pra suportar @hourly, @daily, etc.
-var parser = cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow | cron.Descriptor)
+// parser é o parser padrão do robfig/cron — reutilizado em todas as chamadas.
+// Criado uma vez aqui (package-level) por ser thread-safe e caro de instanciar.
+var parser = cron.NewParser(
+	cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
+)
 
-// Validate checa se a string do cron tá no formato certo.
-// É super importante validar antes de salvar no banco pra evitar
-// que o worker crashe depois na hora de tentar agendar.
+// Validate verifica se uma expression é válida antes de salvar no banco.
+// Aceita cron UNIX (5 campos) ou o formato "every:Nm" (ex: "every:15m").
+// Retorna erro descritivo se inválido — vai direto pro response da API.
 func Validate(expr string) error {
+	if isIntervalExpr(expr) {
+		_, err := parseInterval(expr)
+		return err
+	}
+
 	_, err := parser.Parse(expr)
 	if err != nil {
-		return fmt.Errorf("cron inválido: %w", err)
+		return fmt.Errorf("cron expression inválida: %w", err)
 	}
 	return nil
 }
-
-// NextRun calcula a próxima vez que o job vai rodar baseado na expressão cron e no fuso.
-// Isso é útil pra mostrar na UI ou pro próprio core do scheduler saber quando acordar.
-func NextRun(expr, timezone string) (time.Time, error) {
-	schedule, err := parser.Parse(expr)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("expressão cron não bate com o padrão: %w", err)
-	}
-
-	// Carrega o fuso pra evitar dores de cabeça com horário de verão e afins
+	
+// NextRun calcula o próximo horário de execução a partir de now.
+// É chamado pelo JobService na criação e pelo Scheduler após enfileirar.
+// timezone deve ser um nome IANA válido: "America/Sao_Paulo", "UTC", etc.
+func NextRun(expr, timezone string, now time.Time) (time.Time, error) {
 	loc, err := time.LoadLocation(timezone)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("deu ruim ao carregar o timezone (%s): %w", timezone, err)
+		return time.Time{}, fmt.Errorf("timezone inválida %q: %w", timezone, err)
 	}
 
-	// Calcula a partir do momento atual lá no fuso especificado
-	now := time.Now().In(loc)
-	return schedule.Next(now), nil
+	// Converte now para o timezone do job antes de calcular.
+	// Sem isso, um job "todo dia às 9h em Brasília" calcularia errado se
+	// o servidor estiver em UTC.
+	nowInLoc := now.In(loc)
+
+	if isIntervalExpr(expr) {
+		duration, err := parseInterval(expr)
+		if err != nil {
+			return time.Time{}, err
+		}
+		return nowInLoc.Add(duration), nil
+	}
+
+	schedule, err := parser.Parse(expr)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("erro ao parsear expression: %w", err)
+	}
+
+	return schedule.Next(nowInLoc), nil
 }
 
-// ParseInterval tenta dar uma facilitada com um parser mais "humano".
-// O front tinha pedido pra gente suportar uns atalhos tipo "every:15m"
-// ao invés de sempre ter que mandar "*/15 * * * *".
-func ParseInterval(input string) (string, error) {
-	// Se já for uma macro que o pacote entende de fábrica (tipo @hourly), passa direto
-	if strings.HasPrefix(input, "@") {
-		return input, nil
+// isIntervalExpr verifica se é o formato customizado "every:Nm".
+func isIntervalExpr(expr string) bool {
+	return strings.HasPrefix(expr, "every:")
+}
+
+// parseInterval converte "every:15m" → time.Duration.
+// Unidades suportadas: m (minutos), h (horas).
+// Limite mínimo: 1 minuto (regra de negócio do MVP).
+func parseInterval(expr string) (time.Duration, error) {
+	// Remove o prefixo "every:" e fica com "15m", "2h", etc
+	raw := strings.TrimPrefix(expr, "every:")
+	if raw == "" {
+		return 0, fmt.Errorf("formato inválido: %q — use every:15m ou every:2h", expr)
 	}
 
-	// Lida com a nossa sintaxe inventada (every:XXm ou every:XXh)
-	if strings.HasPrefix(input, "every:") {
-		val := strings.TrimPrefix(input, "every:")
+	unit := raw[len(raw)-1:]         // último caractere: "m" ou "h"
+	valueStr := raw[:len(raw)-1]      // o restante: "15", "2", etc
 
-		if strings.HasSuffix(val, "m") {
-			mins := strings.TrimSuffix(val, "m")
-			return fmt.Sprintf("*/%s * * * *", mins), nil
-		}
-
-		if strings.HasSuffix(val, "h") {
-			hours := strings.TrimSuffix(val, "h")
-			return fmt.Sprintf("0 */%s * * *", hours), nil
-		}
-
-		return "", fmt.Errorf("o atalho '%s' tá num formato que a gente ainda não suporta", input)
+	value, err := strconv.Atoi(valueStr)
+	if err != nil || value <= 0 {
+		return 0, fmt.Errorf("valor inválido em %q — deve ser um número positivo", expr)
 	}
 
-	// Se não for o nosso atalho, assume que já é o cron em si e devolve puro
-	return input, nil
+	switch unit {
+	case "m":
+		if value < 1 {
+			return 0, fmt.Errorf("intervalo mínimo é 1 minuto")
+		}
+		return time.Duration(value) * time.Minute, nil
+	case "h":
+		return time.Duration(value) * time.Hour, nil
+	default:
+		return 0, fmt.Errorf("unidade desconhecida %q em %q — use 'm' (minutos) ou 'h' (horas)", unit, expr)
+	}
 }
