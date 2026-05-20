@@ -12,10 +12,10 @@ dev/scheduler:
 
 # Migrations
 migrate/up:
-	migrate -path ./migrations -database "$(DATABASE_URL)" up
+	docker run --rm --net=host -v $$(pwd)/migrations:/migrations migrate/migrate -path=/migrations -database "$(DATABASE_URL)" up
 
 migrate/down:
-	migrate -path ./migrations -database "$(DATABASE_URL)" down 1
+	docker run --rm --net=host -v $$(pwd)/migrations:/migrations migrate/migrate -path=/migrations -database "$(DATABASE_URL)" down 1
 
 # Gerar código a partir de queries SQL (requer sqlc instalado)
 sqlc/gen:

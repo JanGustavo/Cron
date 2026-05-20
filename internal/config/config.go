@@ -7,16 +7,19 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 
 	"github.com/joho/godotenv"
 )
 
 // Configurações da aplicação
 type Config struct {
-	AppEnv      string
-	Port        string
-	DatabaseURL string
-	RedisURL    string
+	AppEnv          string
+	Port            string
+	DatabaseURL     string
+	RedisURL        string
+	MaxJobsFreePlan int
+	MaxJobsPaidPlan int
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -26,10 +29,12 @@ func Load() *Config {
 	}
 
 	return &Config{
-		AppEnv:      getEnv("APP_ENV", "development"),
-		Port:        getEnv("PORT", "8080"),
-		DatabaseURL: mustGetEnv("DATABASE_URL"),
-		RedisURL:    getEnv("REDIS_URL", "redis://localhost:6379"),
+		AppEnv:          getEnv("APP_ENV", "development"),
+		Port:            getEnv("PORT", "8080"),
+		DatabaseURL:     mustGetEnv("DATABASE_URL"),
+		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
+		MaxJobsFreePlan: getEnvAsInt("MAX_JOBS_FREE_PLAN", 3),
+		MaxJobsPaidPlan: getEnvAsInt("MAX_JOBS_PAID_PLAN", 20),
 	}
 }
 
@@ -49,4 +54,18 @@ func mustGetEnv(key string) string {
 	}
 	log.Fatalf("FATAL: variável de ambiente obrigatória não definida %s", key)
 	return ""
+}
+
+// getEnvAsInt lê uma variável de ambiente e converte para int, usando o fallback em caso de falha ou ausência
+func getEnvAsInt(key string, fallback int) int {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(valueStr)
+	if err != nil {
+		log.Printf("ERRO: variável de ambiente %s=%s inválida para int, usando fallback: %d", key, valueStr, fallback)
+		return fallback
+	}
+	return value
 }
