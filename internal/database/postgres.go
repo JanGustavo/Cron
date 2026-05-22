@@ -27,3 +27,8 @@ func ConnectPostgres(databaseURL string) (*sql.DB, error) {
 	log.Println("Conexão com PostgreSQL estabelecida com sucesso")
 	return db, nil
 }
+
+// Connect e um alias de ConnectPostgres para simplificar o uso no main.
+func Connect(databaseURL string) (*sql.DB, error) {
+	return ConnectPostgres(databaseURL)
+}

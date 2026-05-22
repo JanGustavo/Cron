@@ -4,32 +4,42 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/JanGustavo/Cron/internal/api/handler"
 	"github.com/JanGustavo/Cron/internal/api/router"
 	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/JanGustavo/Cron/internal/database"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	"github.com/JanGustavo/Cron/internal/service"
 )
 
 func main() {
-	// 1. carrega as configurações
+	// 1. carrega as configuracoes
 	cfg := config.Load()
 
 	// 2. conecta ao banco
-	db, err := database.ConnectPostgres(cfg.DatabaseURL)
+	db, err := database.Connect(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Erro ao conectar ao banco de dados: %v", err)
+		log.Fatalf("Falha ao conectar no banco: %v", err)
 	}
 	defer db.Close()
 
-	// Inicializa os repositórios necessários
+	// Repositories
 	userRepo := postgres.NewUserRepository(db)
+	jobRepo := postgres.NewJobRepository(db)
 
-	// 3. monta o router
-	r := router.NewRouter(db, userRepo)
+	// Services
+	jobService := service.NewJobService(jobRepo, userRepo, cfg)
+
+	// Handlers
+	healthHandler := handler.NewHealthHandler(db)
+	jobHandler := handler.NewJobHandler(jobService)
+
+	// Router
+	r := router.New(userRepo, jobHandler, healthHandler)
 
 	// 5. sobe o servidor
-	log.Printf("Api rodando na porta %s", cfg.Port)
+	log.Printf("API rodando em http://localhost:%s", cfg.Port)
 	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
-		log.Fatalf("Falha ao iniciar servidor %v", err)
+		log.Fatalf("Falha ao iniciar servidor: %v", err)
 	}
 }

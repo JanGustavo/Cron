@@ -23,37 +23,38 @@ const (
 	MethodPost HTTPMethod = "POST"
 )
 
+// internal/domain/job/job.go
 type Job struct {
-	ID                  string
-	ProjectID           string
-	Name                string
-	Schedule            string
-	Timezone            string // "AMERICA/Sao_Paulo", "UTC", etc
-	URL                 string
-	HTTPMethod          HTTPMethod
-	Headers             map[string]string // {"Content-Type": "application/json"}
-	Payload             string            // corpo
-	Status              Status
-	NextRunAt           time.Time
-	LastRunAt 		    *time.Time // se nunca rodou, é nil	
-	ConsecutiveFailures int
-	WebhookAlertURL     *string // URL para callbacks de sucesso/falha
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	ID                  string            `json:"id"`
+	ProjectID           string            `json:"project_id"`
+	Name                string            `json:"name"`
+	Schedule            string            `json:"schedule"`
+	Timezone            string            `json:"timezone"` // "AMERICA/Sao_Paulo", "UTC", etc
+	URL                 string            `json:"url"`
+	HTTPMethod          HTTPMethod        `json:"http_method"`
+	Headers             map[string]string `json:"headers,omitempty"`// {"Content-Type": "application/json"}
+	Payload             map[string]any    `json:"payload,omitempty"` // corpo JSON
+	Status              Status            `json:"status"`
+	NextRunAt           time.Time         `json:"next_run_at"`
+	LastRunAt           *time.Time        `json:"last_run_at,omitempty"` // se nunca rodou, é nil
+	ConsecutiveFailures int               `json:"consecutive_failures"`
+	WebhookAlertURL     *string           `json:"webhook_alert_url,omitempty"` // URL para callbacks de sucesso/falha
+	CreatedAt           time.Time         `json:"created_at"`
+	UpdatedAt           time.Time         `json:"updated_at"`
 }
 
-//regras de negócio puras, sem dependências externas:
-//retorna true se o job estiver ativo e a próxima execução for no passado ou agora
+// regras de negócio puras, sem dependências externas:
+// retorna true se o job estiver ativo e a próxima execução for no passado ou agora
 func (j *Job) IsElegibleToRun(now time.Time) bool {
-	return j.Status == StatusActive && !j.NextRunAt.After(now)	
+	return j.Status == StatusActive && !j.NextRunAt.After(now)
 }
 
-//verifica se o job deve disparar o webhook de alerta após 3 falhas consecutivas
+// verifica se o job deve disparar o webhook de alerta após 3 falhas consecutivas
 func (j *Job) ShouldAlert() bool {
-	return j.ConsecutiveFailures >= 3 && j.WebhookAlertURL != nil 
-} 
+	return j.ConsecutiveFailures >= 3 && j.WebhookAlertURL != nil
+}
 
-//aumenta o contador de falhas consecutivas e, se atingir 3, marca o job como "failing"
+// aumenta o contador de falhas consecutivas e, se atingir 3, marca o job como "failing"
 func (j *Job) markAsFailed() {
 	j.ConsecutiveFailures++
 	if j.ConsecutiveFailures >= 3 {
@@ -61,9 +62,8 @@ func (j *Job) markAsFailed() {
 	}
 }
 
-//reseta o contador de falhas e volta o status para "active"
-func (j *Job) ResetFailures(){
+// reseta o contador de falhas e volta o status para "active"
+func (j *Job) ResetFailures() {
 	j.ConsecutiveFailures = 0
 	j.Status = StatusActive //apo
 }
-

@@ -1,76 +1,42 @@
 package router
 
 import (
-	"database/sql"
-	"encoding/json"
-	"net/http"
-
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	"github.com/JanGustavo/Cron/internal/api/handler"
 	"github.com/JanGustavo/Cron/internal/api/middleware"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 )
 
-// NewRouter monta todas as rotas da API REST usando chi e injeta as dependências necessárias.
-func NewRouter(db *sql.DB, userRepo *postgres.UserRepository) *chi.Mux {
+func New(
+	userRepo *postgres.UserRepository,
+	jobHandler *handler.JobHandler,
+	healthHandler *handler.HealthHandler,
+) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middlewares globais
+	r.Use(middleware.CORS)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RealIP)
 
-	// Rota raiz (Healthcheck simples)
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"service": "cronflow-api",
-			"health":  "/health",
-		})
-	})
+	// Rota publica — sem autenticacao
+	r.Get("/health", healthHandler.Check)
 
-	// Healthcheck completo
-	r.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if err := db.Ping(); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			json.NewEncoder(w).Encode(map[string]string{
-				"status":   "error",
-				"postgres": "down",
-				"error":    err.Error(),
-			})
-			return
-		}
+	// Rotas autenticadas
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.Auth(userRepo))
 
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"status":   "ok",
-			"postgres": "up",
-		})
-	})
-
-	// Rotas da versão 1 (V1)
-	r.Route("/v1", func(r chi.Router) {
-		// Rotas protegidas pelo middleware de autenticação (API Key)
-		r.Group(func(r chi.Router) {
-			r.Use(middleware.Auth(userRepo))
-
-			// Exemplo de rota de jobs cadastrada para teste de autenticação
-			r.Get("/jobs", func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				json.NewEncoder(w).Encode(map[string]interface{}{
-					"message": "Autenticado com sucesso!",
-					"jobs":    []interface{}{},
-				})
-			})
-
-			// Outras rotas protegidas virão aqui...
+		r.Route("/v1/jobs", func(r chi.Router) {
+			r.Get("/", jobHandler.List)
+			r.Post("/", jobHandler.Create)
+			r.Get("/{id}", jobHandler.GetByID)
+			r.Patch("/{id}", jobHandler.UpdateStatus)
+			r.Delete("/{id}", jobHandler.Delete)
 		})
 	})
 
 	return r
 }
-
