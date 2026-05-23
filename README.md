@@ -1,30 +1,15 @@
-# CronFlow — Plataforma de Agendamento e Automação de Tarefas
+# 🚀 CronFlow — Plataforma de Agendamento e Automação de Tarefas
+## Manual de Desenvolvimento e Arquitetura do MVP (Para Desenvolvedores Juniores e Estagiários)
 
-> **Stack:** Go 1.22 · PostgreSQL 16 · Redis 7 · Asynq · chi Router
-> **Arquitetura:** Multi-binary · Stateless Workers · Distributed Scheduler
-> **Princípio:** SRP (Single Responsibility Principle) aplicado em todos os níveis
+Bem-vindo ao time de engenharia do **CronFlow**! Este guia foi feito sob medida para ajudar você a entender o funcionamento interno de nosso sistema, desde a arquitetura de múltiplos binários até os fluxos de dados mais complexos.
 
----
-
-## Sumário
-
-1. [Visão Geral da Arquitetura](#visão-geral-da-arquitetura)
-2. [Como Rodar Localmente](#como-rodar-localmente)
-3. [Estrutura de Diretórios — Mapa Completo](#estrutura-de-diretórios--mapa-completo)
-4. [cmd/ — Entrypoints (Binários)](#cmd--entrypoints-binários)
-5. [internal/ — Código Privado da Aplicação](#internal--código-privado-da-aplicação)
-6. [pkg/ — Pacotes Utilitários Reutilizáveis](#pkg--pacotes-utilitários-reutilizáveis)
-7. [migrations/ — Schema e Queries SQL](#migrations--schema-e-queries-sql)
-8. [deploy/ — Dockerfiles por Processo](#deploy--dockerfiles-por-processo)
-9. [Decisões de Arquitetura](#decisões-de-arquitetura)
-10. [Variáveis de Ambiente](#variáveis-de-ambiente)
-11. [Limites do MVP](#limites-do-mvp)
+O CronFlow é uma plataforma SaaS de agendamento de tarefas e disparo de webhooks (um "CronTab em escala como serviço"). O sistema permite que nossos usuários cadastrem requisições HTTP agendadas (via expressões cron) que devem ser executadas com alta precisão, tolerância a falhas e total rastreabilidade.
 
 ---
 
-## Visão Geral da Arquitetura
+## 🗺️ Visão Geral da Arquitetura (Múltiplos Binários)
 
-O CronFlow é composto por **3 processos independentes** que se comunicam via PostgreSQL e Redis:
+Em vez de construirmos um monólito gigante e pesado, o CronFlow foi projetado seguindo o **Princípio da Responsabilidade Única (SRP)** no nível de infraestrutura. O sistema é dividido em **3 processos totalmente independentes** (binários distintos) que rodam lado a lado, comunicando-se através de duas fontes: o banco de dados **PostgreSQL** e o broker de mensagens **Redis**.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -32,407 +17,274 @@ O CronFlow é composto por **3 processos independentes** que se comunicam via Po
 └──────────────────────────┬──────────────────────────────────┘
                            │ REST API
 ┌──────────────────────────▼──────────────────────────────────┐
-│            PROCESSO 1: API (cmd/api)                        │
+│            PROCESSO 1: API REST (cmd/api)                   │
 │         chi Router · Handlers · Services                    │
-│         Autenticação via SHA-256(API Key)                   │
+│         Autenticação via SHA-256 (API Keys)                 │
 └────────────┬──────────────────────────┬────────────────────┘
-             │ Leitura/Escrita          │ Fonte de Verdade
+             │ Leitura/Escrita          │ Fonte da Verdade
 ┌────────────▼──────────────┐  ┌───────▼────────────────────┐
-│   PROCESSO 2: SCHEDULER   │  │     PostgreSQL 16           │
-│   (cmd/scheduler)         │  │  T_USERS · T_PROJECTS      │
-│   Loop 30s · Lock Redis   │  │  T_JOBS  · T_EXECUTIONS    │
+│   PROCESSO 2: SCHEDULER   │  │     PostgreSQL 16          │
+│   (cmd/scheduler)         │  │   Tabelas de Usuários,     │
+│   Loop 30s · Lock Redis   │  │   Projetos, Jobs e Logs    │
 │   Enfileira → Redis       │  └────────────────────────────┘
 └────────────┬──────────────┘
              │ Enqueue
 ┌────────────▼──────────────────────────────────────────────┐
-│              Redis 7 · Asynq Job Queue                     │
-│        Filas: critical (paid) · default (free)             │
+│              Redis 7 · Fila de Tarefas (Asynq)             │
+│        Filas prioritárias e agendamentos temporários       │
 └────────────┬──────────────────────────────────────────────┘
              │ Consume (até 50 goroutines simultâneas)
 ┌────────────▼──────────────────────────────────────────────┐
-│          PROCESSO 3: WORKER (cmd/worker)                   │
-│    Executa HTTP Request → Salva Execution → Retry (3x)    │
+│            PROCESSO 3: WORKER (cmd/worker)                  │
+│    Executa Requisição HTTP → Salva Log → Retry (3x)        │
 │    Backoff Exponencial: 1min → 5min → 15min                │
-│    3 falhas → DLQ → AlertService → Webhook do Usuário      │
-└───────────────────────────────────────────────────────────┘
+│    Se falhar 3x → DLQ → Dispara Alerta via Webhook         │
+└────────────────────────────────────────────────────────────┘
 ```
 
-**Por que 3 processos separados?**
-Porque eles têm requisitos operacionais diferentes:
-- A **API** precisa de baixa latência e pode ter múltiplas réplicas
-- O **Scheduler** precisa de exatamente 1 instância ativa (distributed lock)
-- O **Worker** é stateless e escala horizontalmente sem limites
+### Por que separamos em 3 processos?
+1. **API (`cmd/api`)**: Precisa de alta escalabilidade e baixa latência. Pode ser multiplicada em várias réplicas conforme a quantidade de requisições de clientes crescer.
+2. **Scheduler (`cmd/scheduler`)**: É o coração do agendamento. Para evitar execuções duplicadas, **só pode haver exatamente 1 instância ativa** rodando (usamos locks distribuídos no Redis para garantir isso).
+3. **Worker (`cmd/worker`)**: É totalmente *stateless* (não guarda estado). Ele pode ser escalado horizontalmente de forma agressiva para aguentar rajadas massivas de execuções HTTP sem afetar a performance da API.
 
 ---
 
-## Como Rodar Localmente
+## 🗂️ Glossário de Domínio (As Entidades)
 
-```bash
-# 1. Clone e configure o ambiente
-cp .env.example .env
+Antes de abrir o código, você precisa entender os termos do nosso domínio de negócios. Eles estão mapeados em `internal/domain/`:
 
-# 2. Suba PostgreSQL e Redis
-docker compose up -d postgres redis
+*   **User (Usuário)**: A conta principal do cliente cadastrado. Controla qual **plano** de assinatura (ex: `free` ou `paid`) está ativo. Não usamos senhas; a autenticação no sistema é feita exclusivamente via **API Key**.
+*   **Project (Projeto/Workspace)**: O ambiente (tenant) isolado de trabalho de um usuário. Um usuário pode criar múltiplos projetos para separar seus ambientes (ex: `produção`, `homologação`).
+*   **Job (Tarefa Agendada)**: A definição do agendamento que deve rodar. Contém:
+    *   **Schedule**: Expressão cron (ex: `*/5 * * * *`) ou intervalos curtos (ex: `every:30m`).
+    *   **HTTP Specs**: URL de destino, método HTTP (GET, POST, etc.), cabeçalhos (`Headers`) e corpo da requisição (`Payload`).
+    *   **Status**: Estado atual da tarefa (`active` ou `paused`).
+    *   **NextRunAt**: Timestamp exato (em UTC!) calculado para a próxima execução da tarefa.
+*   **Execution (Histórico/Log de Execução)**: Registro de uma tentativa de execução de requisição HTTP pelo Worker. **É imutável após ser criada**. Contém a duração em milissegundos (`DurationMs`), o código de status HTTP retornado (`HTTPStatus`), o corpo da resposta (`ResponseBody` limitado a 2KB para evitar sobrecarga no banco de dados) e o número da tentativa de execução (`AttemptNumber`).
 
-# 3. Execute as migrations
-make migrate/up
+---
 
-# 4. Em terminais separados, rode cada processo:
-make dev/api        # Terminal 1 — API na porta 8080
-make dev/scheduler  # Terminal 2 — Scheduler (loop 30s)
-make dev/worker     # Terminal 3 — Worker Pool (50 goroutines)
+## 🔄 Fluxos de Execução Passo a Passo
 
-# 5. Teste a API
-curl http://localhost:8080/health
+### 1. Fluxo de Agendamento (O Loop do Scheduler)
+O processo **Scheduler** executa um ciclo de varredura (chamado de `tick`) a cada **30 segundos**.
+
+```mermaid
+graph TD
+    A[Início do Tick 30s] --> B[Adquire Lock no Redis para evitar concorrência]
+    B --> C[Busca no Postgres todos os Jobs ATIVOS onde next_run_at <= NOW]
+    C --> D{Encontrou Jobs?}
+    D -- Não --> E[Incrementa Contador de Ciclos de Limpeza]
+    D -- Sim --> F[Para cada Job elegível]
+    F --> G[Calcula próximo horário next_run_at via parser]
+    G --> H[Enfileira ID do Job no Redis via Asynq]
+    H --> I[Atualiza next_run_at e salva no Postgres]
+    I --> F
+    F --> E
+    E --> J{Ciclos de Limpeza >= 2880?}
+    J -- Não --> K[Libera Lock e Aguarda próximo ciclo]
+    J -- Sim --> L[Executa Log Garbage Collector]
+    L --> M[Remove execuções mais antigas que 7 dias]
+    M --> N[Zera contador de limpeza]
+    N --> K
+```
+
+> [!IMPORTANT]
+> **O Log Garbage Collector (Limpador de Logs)**
+> Implementamos um coletor de lixo periódico direto no loop do Scheduler. Como a tabela `executions` cresce de forma agressiva (milhões de registros por dia), mantemos um contador de ciclos (`cleanupTick`).
+> A cada **2880 ciclos** (aproximadamente 24 horas considerando ticks de 30s), o Scheduler executa o método `DeleteOlderThan(ctx, 7)`, removendo automaticamente todos os logs de execução mais antigos que **7 dias** para usuários do plano grátis. Isso mantém o PostgreSQL leve e performático!
+
+---
+
+### 2. Fluxo do Worker (Consumo e Execução)
+O processo **Worker** monitora a fila do Redis de forma contínua através da biblioteca Asynq.
+
+```
+Fila Redis (Job ID)
+    │
+    ▼ (Consumido pelo Worker)
+1. Busca detalhes completos do Job no PostgreSQL
+    │
+    ▼
+2. Faz o disparo da requisição HTTP (utilizando pkg/httputil com timeout seguro)
+    │
+    ▼
+3. Captura o resultado: HTTP Status, Tempo de Resposta e Corpo (truncado em 2KB)
+    │
+    ▼
+4. Grava na tabela `executions` no PostgreSQL
+    │
+    ▼
+5. Ocorreu erro de rede ou HTTP Status >= 500?
+   ├── SIM ──► Aciona mecanismo de Retry do Asynq (Backoff Exponencial: 1min → 5min → 15min)
+   │           Se falhar pela 3ª vez consecutiva:
+   │           - Envia o Job para a DLQ (Dead Letter Queue)
+   │           - Aciona o AlertService em background (Goroutine)
+   │           - Envia POST de alerta para o Webhook cadastrado pelo usuário
+   └── NÃO ──► Processo concluído com sucesso!
 ```
 
 ---
 
-## Estrutura de Diretórios — Mapa Completo
+## 📂 Mapa do Código (Onde colocar cada arquivo?)
+
+Para você não se perder na estrutura de diretórios, aqui está um mapa das pastas e suas regras de convivência:
 
 ```
 cronflow/
+├── cmd/                          ← PONTOS DE ENTRADA (Os Binários)
+│   ├── api/main.go               ← Inicialização do servidor HTTP REST
+│   ├── scheduler/main.go         ← Inicialização do loop do Scheduler + GC de logs
+│   └── worker/main.go            ← Inicialização do pool de Workers Asynq
 │
-├── cmd/                        ← ENTRYPOINTS — um por processo/binário
-│   ├── api/
-│   │   └── main.go             ← Inicia o servidor HTTP da API REST
-│   ├── worker/
-│   │   └── main.go             ← Inicia o pool de Workers Asynq
-│   └── scheduler/
-│       └── main.go             ← Inicia o loop do Scheduler
+├── internal/                     ← CÓDIGO PRIVADO (Sua lógica de negócio mora aqui!)
+│   ├── domain/                   ← Entidades puras (User, Project, Job, Execution).
+│   │                             └── REGRA: Zero importações externas ou de outras camadas!
+│   │
+│   ├── repository/               ← Toda a comunicação SQL e Redis mora aqui.
+│   │   ├── postgres/             ← Queries no banco (job_repository, execution_repository...)
+│   │   └── redis/                ← Mecanismo de lock distribuído
+│   │
+│   ├── service/                  ← Regras de Negócio complexas.
+│   │   ├── job_service.go        ← Validações de limites de plano, parse de cron e criações
+│   │   └── alert_service.go      ← Dispara webhooks de alerta em goroutines assíncronas
+│   │
+│   ├── api/                      ← Camada HTTP.
+│   │   ├── router/router.go      ← Definição de rotas, grupos públicos e autenticados
+│   │   ├── middleware/           ← Autenticação por token e controle de abuso (Rate Limit)
+│   │   └── handler/              ← Traduz JSON da API para chamadas de service (CRUDs)
+│   │
+│   ├── scheduler/scheduler.go    ← O loop periódico que enfileira tarefas
+│   └── worker/worker.go          ← O processador que efetua os disparos HTTP
 │
-├── internal/                   ← Código PRIVADO — não importável por projetos externos
-│   ├── config/
-│   │   └── config.go           ← Lê variáveis de ambiente e expõe struct tipada
-│   │
-│   ├── domain/                 ← Entidades de domínio — ZERO dependências externas
-│   │   ├── job/
-│   │   │   └── job.go          ← Entidade Job + constantes de status + regras puras
-│   │   ├── execution/
-│   │   │   └── execution.go    ← Entidade Execution — resultado de cada disparo HTTP
-│   │   ├── project/
-│   │   │   └── project.go      ← Entidade Project (workspace multi-tenant)
-│   │   └── user/
-│   │       └── user.go         ← Entidade User + enum de planos (free/paid)
-│   │
-│   ├── repository/             ← Acesso ao banco — SQL isolado aqui
-│   │   ├── postgres/
-│   │   │   ├── job_repository.go        ← CRUD + FindEligibleToRun (query do Scheduler)
-│   │   │   ├── execution_repository.go  ← Salvar resultado + histórico + retenção
-│   │   │   └── user_repository.go       ← Auth: buscar project por hash da API Key
-│   │   └── redis/
-│   │       └── lock_repository.go       ← Distributed lock para o Scheduler
-│   │
-│   ├── api/                    ← Camada HTTP — roteamento, middlewares e handlers
-│   │   ├── router/
-│   │   │   └── router.go       ← Monta todas as rotas + aplica middlewares globais
-│   │   ├── middleware/
-│   │   │   ├── auth.go         ← Valida API Key → injeta Project no context
-│   │   │   └── logger.go       ← Log estruturado JSON de cada request HTTP
-│   │   └── handler/
-│   │       ├── job_handler.go       ← Handlers do recurso Job (CRUD via HTTP)
-│   │       ├── execution_handler.go ← Histórico de execuções com paginação
-│   │       └── health_handler.go    ← GET /health — verifica Postgres e Redis
-│   │
-│   ├── service/                ← Lógica de negócio — orquestra repo + domínio
-│   │   ├── job_service.go      ← Regras: limite de jobs por plano, cálculo next_run, etc
-│   │   └── alert_service.go    ← Dispara webhook de alerta após 3 falhas consecutivas
-│   │
-│   ├── scheduler/
-│   │   └── scheduler.go        ← Loop 30s: lê DB → enfileira Redis → atualiza next_run
-│   │
-│   ├── worker/
-│   │   └── worker.go           ← Executa HTTP request → salva Execution → retry logic
-│   │
-│   ├── queue/
-│   │   └── enqueuer.go         ← Abstração Asynq: cria e envia tasks tipadas para Redis
-│   │
-│   └── auth/
-│       └── apikey.go           ← Generate / Hash(SHA-256) / Verify (timing-safe)
+├── pkg/                          ← PACOTES PÚBLICOS (Ferramentas reutilizáveis)
+│   ├── cronparser/               ← Interpretador e validador de expressões cron
+│   ├── httputil/client.go        ← HTTP Client personalizado (timeouts e proteção de payload)
+│   └── validator/                ← Validador de dados estruturados seguindo o padrão RFC 7807
 │
-├── pkg/                        ← Pacotes PÚBLICOS — reutilizáveis por qualquer projeto
-│   ├── cronparser/
-│   │   └── parser.go           ← Valida cron expr + calcula next run + parse "every:Nm"
-│   ├── httputil/
-│   │   └── client.go           ← HTTP client reutilizável com timeout + body truncado
-│   ├── logger/
-│   │   └── logger.go           ← Setup slog: JSON em prod, colorido em dev
-│   └── validator/
-│       └── validator.go        ← Validação de structs → erros RFC 7807
-│
-├── migrations/                 ← Schema SQL versionado + queries para sqlc
-│   ├── 001_create_users.up.sql    ← Cria: users, projects, api_keys
-│   ├── 001_create_users.down.sql  ← Rollback da migration 001
-│   ├── 002_create_jobs.up.sql     ← Cria: jobs (+ índice parcial), executions
-│   ├── 002_create_jobs.down.sql   ← Rollback da migration 002
-│   └── queries/                   ← Queries SQL puras para geração de código com sqlc
-│       ├── jobs.sql               ← FindEligibleJobs, UpdateNextRun, IncrementFailures...
-│       └── executions.sql         ← CreateExecution, ListByJob, DeleteOldExecutions
-│
-├── deploy/                     ← Dockerfiles — um por processo (multi-stage build)
-│   ├── Dockerfile.api          ← Build otimizado: binário estático via scratch
-│   ├── Dockerfile.worker       ← Mesmo padrão — imagem final ~5MB
-│   └── Dockerfile.scheduler    ← Mesmo padrão
-│
-├── scripts/
-│   └── gen_apikey.sh           ← Gera API Key + hash SHA-256 para testes locais
-│
-├── .github/
-│   └── workflows/
-│       └── ci.yml              ← CI: go vet + go test -race com Postgres e Redis reais
-│
-├── go.mod                      ← Módulo Go e dependências
-├── go.sum                      ← Lock de versões (nunca editar manualmente)
-├── sqlc.yaml                   ← Config do sqlc: qual SQL gera qual pacote Go
-├── Makefile                    ← Atalhos: dev/api, migrate/up, sqlc/gen, test, build
-├── docker-compose.yml          ← PostgreSQL 16 + Redis 7 para desenvolvimento local
-└── .env.example                ← Template de variáveis de ambiente (commitar este)
+└── migrations/                   ← VERSIONAMENTO DO BANCO DE DADOS (Arquivos SQL puros)
 ```
 
 ---
 
-## `cmd/` — Entrypoints (Binários)
+## 🛡️ Mecanismos de Defesa e Segurança
 
-> **Regra:** Cada `main.go` em `cmd/` representa um binário independente que pode ser deployado e escalado separadamente. **Nenhum `main.go` contém lógica de negócio.**
+Como lidamos com dados sensíveis e exposição direta à internet, implementamos dois mecanismos vitais de segurança que você precisa conhecer:
 
-### `cmd/api/main.go`
-Ponto de entrada do servidor HTTP. Sequência de boot:
-1. Carrega `config.Config` do ambiente
-2. Abre conexão com PostgreSQL e Redis
-3. Instancia repositories → services → handlers
-4. Monta o router chi com todas as rotas
-5. Inicia `http.ListenAndServe` na porta configurada
+### 1. Autenticação Timing-Safe com Hashing SHA-256
+Os usuários acessam nossa API REST enviando uma **API Key** no cabeçalho `X-API-Key`.
+*   **Armazenamento Seguro**: Nós **nunca** gravamos a API Key do usuário em texto plano no banco de dados. Salvamos apenas um hash gerado pelo algoritmo **SHA-256**.
+*   **Prevenção de Timing Attacks**: Ao buscar e validar a chave recebida, utilizamos a função `subtle.ConstantTimeCompare()` em Go. Isso garante que o tempo de execução da comparação seja idêntico, independentemente de a chave fornecida estar quase correta ou completamente errada, impossibilitando hackers de deduzirem chaves analisando o tempo de resposta do servidor.
 
-### `cmd/worker/main.go`
-Ponto de entrada do pool de Workers. Sequência de boot:
-1. Conecta ao Redis via Asynq
-2. Registra o handler `TypeHTTPJob → worker.Worker.ProcessTask`
-3. Configura `MaxConcurrency: 50` e filas com prioridade
-4. Inicia `asynq.Server.Run` (bloqueante)
-
-### `cmd/scheduler/main.go`
-Ponto de entrada do Scheduler. Sequência de boot:
-1. Conecta ao PostgreSQL e Redis
-2. Instancia `scheduler.Scheduler`
-3. Inicia `scheduler.Run` — loop bloqueante com tick de 30s
+### 2. Rate Limiting via Algoritmo Janela Deslizante
+Para proteger nosso banco de dados e servidores contra abusos de requisições maliciosas ou loops infinitos de clientes, aplicamos um middleware de limite de taxa utilizando o Redis.
+*   **Limite**: Atualmente fixado em **60 requisições por minuto** por API Key.
+*   **Funcionamento**: Cada requisição armazena um registro de timestamp em um conjunto ordenado (*Sorted Set*) no Redis. Limpezas rápidas removem timestamps antigos, e consultas contam quantos acessos ocorreram nos últimos 60 segundos. Se passar de 60, o usuário recebe um HTTP `429 Too Many Requests`.
 
 ---
 
-## `internal/` — Código Privado da Aplicação
+## 🛠️ Como Rodar e Testar Localmente (Guia Passo a Passo)
 
-> **Por que `internal/`?** Em Go, pacotes dentro de `internal/` só podem ser importados por código dentro do mesmo módulo. Isso é enforçado pelo compilador — nenhum pacote externo pode importar nossa lógica de negócio acidentalmente.
+### 1. Pré-requisitos
+Certifique-se de ter instalado em sua máquina:
+*   [Go 1.22 ou superior](https://go.dev/dl/)
+*   [Docker e Docker Compose](https://docs.docker.com/get-docker/)
 
-### `internal/domain/` — As Entidades
-
-A camada de domínio não conhece banco de dados, HTTP ou Redis. Só structs, constantes e métodos puros. Se você precisar adicionar uma lógica que depende de `database/sql`, ela não pertence ao domínio.
-
-| Entidade | Responsabilidade |
-|----------|-----------------|
-| `job.Job` | Estrutura central. Contém schedule, URL, status, consecutive_failures |
-| `execution.Execution` | Resultado de um disparo HTTP. Imutável após criado. |
-| `project.Project` | Workspace de isolamento multi-tenant. |
-| `user.User` | Dono da conta. Sem senha — auth é por API Key. |
-
-### `internal/repository/` — Acesso ao Banco
-
-Toda query SQL do projeto mora aqui. **Nenhuma outra camada escreve SQL.**
-
-**`postgres/job_repository.go`** — a query mais crítica:
-```sql
--- Chamada a cada 30s pelo Scheduler. Usa o índice parcial.
-SELECT * FROM jobs
-WHERE status = 'active' AND next_run_at <= NOW()
-ORDER BY next_run_at ASC
-LIMIT 500;
-```
-
-**`redis/lock_repository.go`** — previne double-enqueue:
-```
-SET scheduler:lock <nodeID> NX EX 40
-```
-Se retornar `0`, outro processo já tem o lock → skip o ciclo.
-
-### `internal/api/` — A Camada HTTP
-
-```
-Request HTTP
-    → router.go (qual handler?)
-    → middleware/auth.go (API Key válida? → injeta Project no context)
-    → middleware/logger.go (loga request)
-    → handler/*.go (deserializa → chama service → serializa resposta)
-```
-
-**Regra dos Handlers:** Handlers são "thin controllers". Eles não tomam decisões de negócio. Se um handler tem mais de 30 linhas de lógica, algo está no lugar errado.
-
-### `internal/service/` — Lógica de Negócio
-
-Aqui mora o que não é banco e não é HTTP. Exemplos de regras no `JobService`:
-
-```go
-// Verificar limite de plano antes de criar job
-count := repo.CountJobsByProject(projectID)
-if user.Plan == "free" && count >= 5 {
-    return ErrFreePlanJobLimit
-}
-
-// Calcular next_run_at no momento da criação
-nextRun := cronparser.NextRun(job.Schedule, job.Timezone)
-```
-
-### `internal/scheduler/scheduler.go`
-
-O Scheduler **não executa** HTTP requests. Ele só move jobs do PostgreSQL para a fila Redis. Isso é a separação de responsabilidade mais importante do sistema:
-
-```
-Scheduler responsabilidade: "Qual job deve rodar agora?"
-Worker responsabilidade:    "Execute esse job específico."
-```
-
-Se o Scheduler executasse jobs diretamente, um job lento (timeout de 30s) travaria o loop inteiro, causando atrasos em cascata para todos os outros usuários.
-
-### `internal/worker/worker.go`
-
-Workers são **stateless**: recebem um `job_id`, buscam os dados no Postgres, fazem o request, salvam o resultado e encerram. Eles não guardam estado entre execuções.
-
-O Asynq gerencia o retry automaticamente. O worker só precisa retornar `error` para sinalizar falha:
-
-```go
-func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
-    // Se retornar erro, Asynq agenda retry com backoff exponencial
-    // Após MaxRetry tentativas, move para Dead Letter Queue
-}
-```
-
----
-
-## `pkg/` — Pacotes Utilitários Reutilizáveis
-
-> **Diferença de `internal/`:** pacotes em `pkg/` não têm dependências de negócio e **poderiam** ser extraídos para um módulo separado no futuro. São ferramentas, não regras de negócio.
-
-| Pacote | O que faz | Usado por |
-|--------|-----------|-----------|
-| `cronparser` | Valida e interpreta cron expressions | Service, Scheduler |
-| `httputil` | Executa HTTP requests com timeout | Worker |
-| `logger` | Setup slog com output JSON/colorido | Todos os processos |
-| `validator` | Valida input de API → erros RFC 7807 | Handlers |
-
----
-
-## `migrations/` — Schema e Queries SQL
-
-O projeto usa **golang-migrate** para versionamento e **sqlc** para geração de código.
-
-**Fluxo de desenvolvimento:**
+### 2. Configurando o Ambiente
+Copie o template de variáveis de ambiente para criar o arquivo `.env`:
 ```bash
-# 1. Escreva a migration SQL
-vim migrations/003_add_webhook_url.up.sql
+cp .env.example .env
+```
 
-# 2. Aplique
+### 3. Subindo a Infraestrutura
+Suba os contêineres do PostgreSQL e do Redis em segundo plano:
+```bash
+docker compose up -d postgres redis
+```
+
+### 4. Executando as Migrations
+Aplique a modelagem do banco de dados (tabelas e índices) rodando:
+```bash
 make migrate/up
-
-# 3. Escreva as queries em /migrations/queries/
-vim migrations/queries/jobs.sql
-
-# 4. Gere o código Go tipado
-make sqlc/gen
-# → Gera internal/repository/postgres/db/*.go automaticamente
 ```
 
-**Por que sqlc e não GORM?**
-- GORM usa reflection em runtime → mais lento, erros em runtime
-- sqlc valida SQL em tempo de compilação → erros em build, não em produção
-- Você escreve SQL real → sem surpresas de N+1 queries geradas pelo ORM
+### 5. Populando o Banco de Dados (Seed)
+Para facilitar seus testes locais, aplique o script de seed para criar um usuário de testes e gerar chaves de API:
+```bash
+psql "postgres://postgres:postgres@localhost:5432/cronflow?sslmode=disable" -f scripts/seed.sql
+```
+*(Dica: Você também pode usar o helper `./scripts/gen_apikey.sh` para criar chaves de teste adicionais).*
 
-### Índices críticos
+### 6. Iniciando os Processos
+Abra 3 terminais separados e execute cada um dos binários do MVP em modo de desenvolvimento:
 
-```sql
--- Partial index: indexa SOMENTE jobs ativos.
--- Com 100k jobs onde 40% estão pausados, o índice tem 60% do tamanho total.
--- A query do Scheduler (a mais frequente do sistema) usa APENAS esse índice.
-CREATE INDEX idx_jobs_scheduler ON jobs (next_run_at ASC)
-    WHERE status = 'active';
+*   **Terminal 1 (A API HTTP)**:
+    ```bash
+    make dev/api
+    ```
+*   **Terminal 2 (O Scheduler & Garbage Collector)**:
+    ```bash
+    make dev/scheduler
+    ```
+*   **Terminal 3 (O Worker Pool)**:
+    ```bash
+    make dev/worker
+    ```
+
+---
+
+## 🧪 Exemplos Práticos de Testes (Via Curl)
+
+Aqui estão alguns comandos prontos para você testar a API localmente a partir de sua API Key gerada no passo anterior.
+
+### Verificar a Saúde do Sistema (Health Check)
+Endpoint público para verificar se o banco de dados e o Redis estão online:
+```bash
+curl -i http://localhost:8080/health
+```
+
+### Criar uma Nova Tarefa Agendada (Job)
+Cria um Job que realiza uma chamada POST a cada minuto para um endpoint específico:
+```bash
+curl -i -X POST http://localhost:8080/v1/jobs \
+  -H "X-API-Key: SUA_API_KEY_DE_TESTES_GERADA" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Disparador de Webhook de Teste",
+    "schedule": "*/1 * * * *",
+    "timezone": "America/Sao_Paulo",
+    "url": "https://httpbin.org/post",
+    "http_method": "POST",
+    "headers": {
+      "Content-Type": "application/json",
+      "User-Agent": "CronFlow-Worker/1.0"
+    },
+    "payload": {
+      "status": "system_ok",
+      "triggered_by": "scheduler"
+    }
+  }'
+```
+
+### Listar todos os Jobs cadastrados
+```bash
+curl -i http://localhost:8080/v1/jobs \
+  -H "X-API-Key: SUA_API_KEY_DE_TESTES_GERADA"
+```
+
+### Consultar Logs de Execução de um Job específico
+```bash
+curl -i http://localhost:8080/v1/executions?job_id=ID_DO_JOB_CRIADO \
+  -H "X-API-Key: SUA_API_KEY_DE_TESTES_GERADA"
 ```
 
 ---
 
-## `deploy/` — Dockerfiles por Processo
+## 🏆 Regras de Ouro para Desenvolvedores Juniores e Estagiários
 
-Cada processo tem seu próprio Dockerfile usando **multi-stage build**:
+1.  **Não coloque lógica de negócios em Handlers**: Handlers devem apenas ler parâmetros HTTP, validar o JSON de entrada com nosso validador estruturado, acionar o `Service` correto e retornar a resposta formatada. Se o seu handler tiver ifs complexos ou queries ao banco, reescreva-o enviando essa lógica para o `Service`.
+2.  **Use SQL Puro e compile com SQLC**: Nós não utilizamos ORMs pesados como GORM neste projeto. Escrevemos queries SQL puras organizadas em arquivos na pasta `migrations/queries/`. Após alterar ou criar uma query, execute `make sqlc/gen` para gerar o código Go fortemente tipado automaticamente. Isso garante performance máxima e segurança em tempo de compilação!
+3.  **Tudo em UTC**: O banco de dados e os cálculos do parser de cron rodam exclusivamente em UTC. Nunca use funções do sistema que peguem o fuso horário local (`time.Now()`) diretamente para salvar no banco. Sempre faça conversões usando `.UTC()`.
+4.  **Atenção aos retornos do Scheduler**: No Scheduler, todos os tratamentos de erros ou situações sem jobs elegíveis passam por um fluxo que obrigatoriamente executa o nosso log de limpeza no final do método `tick()`. Nunca insira `return` precoces que pulem a instrução final de contagem e verificação de ticks.
 
-```dockerfile
-# Stage 1: compilação (imagem grande, ~800MB)
-FROM golang:1.22-alpine AS builder
-RUN go build -o /bin/api ./cmd/api
-
-# Stage 2: imagem final (FROM scratch = zero OS)
-FROM scratch
-COPY --from=builder /bin/api /api
-# Resultado: imagem de ~5MB com apenas o binário
-```
-
-Por que `FROM scratch`? O binário Go compilado com `CGO_ENABLED=0` é completamente estático — não precisa de libc, bash, nem nada. A imagem final não tem shell, o que também é uma vantagem de segurança.
-
----
-
-## Decisões de Arquitetura
-
-### Por que Go?
-- Goroutines: 50 workers consomem ~200KB de RAM (vs ~100MB com threads OS)
-- Binário estático: deploy é copiar um arquivo
-- `net/http` stdlib já é production-grade
-- Compilação rápida + detecção de race conditions com `-race`
-
-### Por que PostgreSQL como fonte de verdade (e não Redis)?
-- Redis é **efêmero** por design. Se o Redis cair e você só tiver os dados lá, perdeu tudo.
-- PostgreSQL com ACID garante que um job nunca seja "perdido" entre o scheduler enfileirar e o worker processar.
-- Se o Redis cair e o Scheduler reiniciar, ele reconstrói a fila consultando o Postgres.
-
-### Por que Redis + Asynq para a fila?
-- Redis tem latência sub-milissegundo — ideal para enfileirar dezenas de jobs em rajada
-- Asynq implementa dead letter queue, retry com backoff e dashboard (Asynqmon) gratuitamente
-- Alternativa (PostgreSQL como fila com `SKIP LOCKED`) é válida mas tem latência maior
-
-### Por que API Keys com SHA-256 em vez de JWT?
-- JWTs são stateless mas exigem rotação de segredo e têm complexidade de expiração
-- API Keys são mais simples de revogar: delete o hash do banco, acesso negado imediatamente
-- SHA-256 é suficiente para hashing de tokens aleatórios (não é senha — não precisa de bcrypt/argon2)
-
----
-
-## Variáveis de Ambiente
-
-| Variável | Padrão | Descrição |
-|----------|--------|-----------|
-| `APP_ENV` | `development` | `development` ou `production` |
-| `PORT` | `8080` | Porta do servidor HTTP |
-| `DATABASE_URL` | — | Connection string PostgreSQL |
-| `REDIS_URL` | `localhost:6379` | Endereço do Redis |
-| `SCHEDULER_INTERVAL` | `30s` | Frequência do loop do Scheduler |
-| `SCHEDULER_LOCK_TTL` | `40s` | TTL do distributed lock (deve ser > INTERVAL) |
-| `WORKER_CONCURRENCY` | `50` | Goroutines paralelas máximas |
-| `WORKER_TIMEOUT_DEFAULT` | `30s` | Timeout máximo por job |
-| `MAX_JOBS_FREE_PLAN` | `5` | Limite de jobs no plano free |
-| `MAX_JOBS_PAID_PLAN` | `100` | Limite de jobs no plano pago |
-| `LOG_RETENTION_FREE_DAYS` | `7` | Dias de retenção de logs (free) |
-| `LOG_RETENTION_PAID_DAYS` | `90` | Dias de retenção de logs (pago) |
-
----
-
-## Limites do MVP
-
-| Parâmetro | Valor | Motivo |
-|-----------|-------|--------|
-| Frequência mínima de job | 1 vez/minuto | Abaixo disso é real-time — problema diferente |
-| Timeout máximo por job | 30 segundos | Protege workers de jobs zumbis |
-| Payload máximo (POST) | 64 KB | Suficiente para 99% dos casos |
-| Tentativas de retry | 3 | Balanceia confiabilidade vs custo |
-| Workers simultâneos | 50 | Limite de infra inicial (ajustável) |
-| Jobs por projeto (free) | 5 | Gate de conversão para plano pago |
-| Jobs por projeto (pago) | 100 | Limite de negócio, não técnico |
-| Rate limit da API | 60 req/min por API Key | Protege contra abuso |
-| Retenção de logs (free) | 7 dias | Controle de custo de storage |
-| Retenção de logs (pago) | 90 dias | Feature de diferenciação |
-
----
-
-*CronFlow — Documento gerado para fins de arquitetura e referência do MVP*
+Pronto! Agora você tem em mãos todo o conhecimento necessário para começar a codificar no CronFlow. Se tiver dúvidas, consulte os testes unitários ou converse com seu engenheiro parceiro. Bons códigos! 🚀
