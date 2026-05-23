@@ -27,8 +27,9 @@ func main() {
 	defer enqueuer.Close()
 
 	jobRepo := postgres.NewJobRepository(db)
+	executionRepo := postgres.NewExecutionRepository(db)
 
-	sched := scheduler.New(jobRepo, enqueuer, 30*time.Second)
+	sched := scheduler.New(jobRepo, executionRepo, enqueuer, 30*time.Second)
 
 	// Graceful shutdown: Ctrl+C ou SIGTERM encerra o loop limpo
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

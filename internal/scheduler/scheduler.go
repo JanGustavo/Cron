@@ -20,20 +20,24 @@ import (
 // Apenas lê o banco e escreve na fila.
 
 type Scheduler struct {
-	jobRepo  *postgres.JobRepository
-	enqueuer *queue.Enqueuer
-	interval time.Duration
+	jobRepo       *postgres.JobRepository
+	executionRepo *postgres.ExecutionRepository
+	enqueuer      *queue.Enqueuer
+	interval      time.Duration
+	cleanupTick   int
 }
 
 func New(
 	jobRepo *postgres.JobRepository,
+	executionRepo *postgres.ExecutionRepository,
 	enqueuer *queue.Enqueuer,
 	interval time.Duration,
 ) *Scheduler {
 	return &Scheduler{
-		jobRepo:  jobRepo,
-		enqueuer: enqueuer,
-		interval: interval,
+		jobRepo:       jobRepo,
+		executionRepo: executionRepo,
+		enqueuer:      enqueuer,
+		interval:      interval,
 	}
 }
 
@@ -66,36 +70,43 @@ func (s *Scheduler) tick(ctx context.Context) {
 	jobs, err := s.jobRepo.FindEligibleToRun(ctx, now)
 	if err != nil {
 		log.Printf("Scheduler.tick: erro ao buscar jobs: %v", err)
-		return
+	} else if len(jobs) > 0 {
+		log.Printf("Scheduler.tick: %d job(s) elegíveis", len(jobs))
+
+		for _, j := range jobs {
+			// Calcula próxima execução ANTES de enfileirar
+			// Se o enqueue falhar, o next_run já está correto para o próximo ciclo
+			nextRun, err := cronparser.NextRun(j.Schedule, j.Timezone, now)
+			if err != nil {
+				log.Printf("Scheduler.tick: erro ao calcular next_run do job %s: %v", j.ID, err)
+				continue
+			}
+
+			// Enfileira no Redis via Asynq
+			if err := s.enqueuer.Enqueue(ctx, j.ID); err != nil {
+				log.Printf("Scheduler.tick: erro ao enfileirar job %s: %v", j.ID, err)
+				continue
+			}
+
+			// Atualiza next_run_at no banco
+			if err := s.jobRepo.UpdateNextRun(ctx, j.ID, nextRun); err != nil {
+				log.Printf("Scheduler.tick: erro ao atualizar next_run do job %s: %v", j.ID, err)
+				continue
+			}
+
+			log.Printf("Scheduler.tick: job %s enfileirado — próxima execução: %s", j.ID, nextRun.Format(time.RFC3339))
+		}
 	}
 
-	if len(jobs) == 0 {
-		return
-	}
-
-	log.Printf("Scheduler.tick: %d job(s) elegíveis", len(jobs))
-
-	for _, j := range jobs {
-		// Calcula próxima execução ANTES de enfileirar
-		// Se o enqueue falhar, o next_run já está correto para o próximo ciclo
-		nextRun, err := cronparser.NextRun(j.Schedule, j.Timezone, now)
+	// Limpeza a cada 2880 ciclos = ~24h (2880 × 30s)
+	s.cleanupTick++
+	if s.cleanupTick >= 2880 {
+		s.cleanupTick = 0
+		deleted, err := s.executionRepo.DeleteOlderThan(ctx, 7)
 		if err != nil {
-			log.Printf("Scheduler.tick: erro ao calcular next_run do job %s: %v", j.ID, err)
-			continue
+			log.Printf("Scheduler: erro na limpeza de logs: %v", err)
+		} else if deleted > 0 {
+			log.Printf("Scheduler: limpeza — %d execuções antigas removidas", deleted)
 		}
-
-		// Enfileira no Redis via Asynq
-		if err := s.enqueuer.Enqueue(ctx, j.ID); err != nil {
-			log.Printf("Scheduler.tick: erro ao enfileirar job %s: %v", j.ID, err)
-			continue
-		}
-
-		// Atualiza next_run_at no banco
-		if err := s.jobRepo.UpdateNextRun(ctx, j.ID, nextRun); err != nil {
-			log.Printf("Scheduler.tick: erro ao atualizar next_run do job %s: %v", j.ID, err)
-			continue
-		}
-
-		log.Printf("Scheduler.tick: job %s enfileirado — próxima execução: %s", j.ID, nextRun.Format(time.RFC3339))
 	}
 }

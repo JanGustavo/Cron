@@ -13,10 +13,12 @@ func New(
 	userRepo *postgres.UserRepository,
 	jobHandler *handler.JobHandler,
 	healthHandler *handler.HealthHandler,
+	executionHandler *handler.ExecutionHandler,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
 	// Middlewares globais
+	r.Use(middleware.RateLimit(60))
 	r.Use(middleware.CORS)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
@@ -29,6 +31,8 @@ func New(
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(userRepo))
 
+		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
+
 		r.Route("/v1/jobs", func(r chi.Router) {
 			r.Get("/", jobHandler.List)
 			r.Post("/", jobHandler.Create)
@@ -40,3 +44,4 @@ func New(
 
 	return r
 }
+

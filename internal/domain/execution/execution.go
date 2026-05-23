@@ -14,16 +14,16 @@ const (
 )
 
 type Execution struct {
-	ID            string
-	JobID         string
-	Status        Status
-	HTTPStatus    *int // *int para permitir valor nil
-	DurationMs    int
-	ResponseBody  string // truncado em 2KB
-	AttemptNumber int
-	TriggeredAt   time.Time
-	StartedAt     *time.Time
-	FinishedAt    *time.Time
+	ID            string     `json:"id"`
+	JobID         string     `json:"job_id"`
+	Status        Status     `json:"status"`
+	HTTPStatus    *int       `json:"http_status,omitempty"` // *int para permitir valor nil, omite o campo se for nil
+	DurationMs    int        `json:"duration_ms"`
+	ResponseBody  string     `json:"response_body,omitempty"` // truncado em 2KB
+	AttemptNumber int        `json:"attempt_number"`
+	TriggeredAt   time.Time  `json:"triggered_at"`
+	StartedAt     *time.Time `json:"started_at,omitempty"`
+	FinishedAt    *time.Time `json:"finished_at,omitempty"`
 }
 
 //retorna true se a execução recebeu resposta HTTP 

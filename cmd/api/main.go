@@ -26,6 +26,7 @@ func main() {
 	// Repositories
 	userRepo := postgres.NewUserRepository(db)
 	jobRepo := postgres.NewJobRepository(db)
+	executionRepo := postgres.NewExecutionRepository(db)
 
 	// Services
 	jobService := service.NewJobService(jobRepo, userRepo, cfg)
@@ -33,9 +34,10 @@ func main() {
 	// Handlers
 	healthHandler := handler.NewHealthHandler(db)
 	jobHandler := handler.NewJobHandler(jobService)
+	executionHandler := handler.NewExecutionHandler(jobService, executionRepo)
 
 	// Router
-	r := router.New(userRepo, jobHandler, healthHandler)
+	r := router.New(userRepo, jobHandler, healthHandler, executionHandler)
 
 	// 5. sobe o servidor
 	log.Printf("API rodando em http://localhost:%s", cfg.Port)
