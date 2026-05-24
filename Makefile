@@ -1,4 +1,16 @@
-.PHONY: dev/api dev/worker dev/scheduler migrate/up migrate/down sqlc/gen test lint build
+.PHONY: dev dev/api dev/worker dev/scheduler dev/front migrate/up migrate/down sqlc/gen test lint build
+
+SHELL := /bin/bash
+
+# Rodar todos os processos juntos com limpeza automática no Ctrl+C (kill 0)
+dev:
+	@echo "⚡ Iniciando todos os serviços do CronFlow (API, Scheduler, Worker, Frontend)..."
+	@trap 'echo -e "\n🛑 Desligando serviços graciosamente..."; kill 0' INT; \
+	go run ./cmd/api & \
+	go run ./cmd/scheduler & \
+	go run ./cmd/worker & \
+	npm --prefix "../cron front" run dev & \
+	wait
 
 # Rodar cada processo em dev
 dev/api:
@@ -9,6 +21,9 @@ dev/worker:
 
 dev/scheduler:
 	go run ./cmd/scheduler
+
+dev/front:
+	npm --prefix "../cron front" run dev
 
 # Migrations
 migrate/up:

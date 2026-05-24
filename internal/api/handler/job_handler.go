@@ -161,6 +161,30 @@ func (h *JobHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// TriggerNow — POST /v1/jobs/{id}/trigger
+func (h *JobHandler) TriggerNow(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	jobID := chi.URLParam(r, "id")
+
+	err := h.jobService.TriggerNow(r.Context(), jobID, proj.ID)
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrJobNotFound):
+			writeError(w, http.StatusNotFound, "job nao encontrado")
+		case errors.Is(err, service.ErrUnauthorized):
+			writeError(w, http.StatusForbidden, "acesso negado")
+		default:
+			writeError(w, http.StatusInternalServerError, "erro ao disparar tarefa")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "tarefa enfileirada para execucao imediata",
+	})
+}
+
 // writeJSON serializa qualquer valor para JSON e escreve na response.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

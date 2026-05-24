@@ -8,6 +8,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/api/router"
 	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/JanGustavo/Cron/internal/database"
+	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/service"
 )
@@ -28,8 +29,12 @@ func main() {
 	jobRepo := postgres.NewJobRepository(db)
 	executionRepo := postgres.NewExecutionRepository(db)
 
+	// queue
+	enqueuer := queue.NewEnqueuer(cfg.RedisURL)
+	defer enqueuer.Close()
+
 	// Services
-	jobService := service.NewJobService(jobRepo, userRepo, cfg)
+	jobService := service.NewJobService(jobRepo, userRepo, enqueuer, cfg)
 
 	// Handlers
 	healthHandler := handler.NewHealthHandler(db)
@@ -44,4 +49,8 @@ func main() {
 	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
 		log.Fatalf("Falha ao iniciar servidor: %v", err)
 	}
+
+	queue.NewEnqueuer(cfg.RedisURL)
+
+	
 }

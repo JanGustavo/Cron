@@ -7,6 +7,7 @@ import (
 
 	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/JanGustavo/Cron/internal/domain/job"
+	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/pkg/cronparser"
 )
@@ -22,17 +23,20 @@ var (
 type JobService struct {
 	jobRepo  *postgres.JobRepository
 	userRepo *postgres.UserRepository
+	enqueuer *queue.Enqueuer
 	cfg      *config.Config
 }
 
 func NewJobService(
 	jobRepo *postgres.JobRepository,
 	userRepo *postgres.UserRepository,
+	enqueuer *queue.Enqueuer,
 	cfg *config.Config,
 ) *JobService {
 	return &JobService{
 		jobRepo:  jobRepo,
 		userRepo: userRepo,
+		enqueuer: enqueuer,
 		cfg:      cfg,
 	}
 }
@@ -160,4 +164,16 @@ func (s *JobService) Delete(ctx context.Context, id, projectID string) error {
 		return err
 	}
 	return s.jobRepo.Delete(ctx, id, projectID)
+}
+
+// TriggerNow dispara o enfileiramento imediato no Redis para execução do job.
+func (s *JobService) TriggerNow(ctx context.Context, jobID, projectID string) error {
+	// 1. Busca o job e garante isolamento multi-tenant (segurança!) reutilizando o GetByID
+	j, err := s.GetByID(ctx, jobID, projectID)
+	if err != nil {
+		return err
+	}
+
+	// 2. Dispara o enfileiramento imediato no Redis para o Worker executar
+	return s.enqueuer.Enqueue(ctx, j.ID)
 }

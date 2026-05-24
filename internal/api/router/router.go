@@ -7,6 +7,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/api/handler"
 	"github.com/JanGustavo/Cron/internal/api/middleware"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	
 )
 
 func New(
@@ -36,12 +37,13 @@ func New(
 		r.Route("/v1/jobs", func(r chi.Router) {
 			r.Get("/", jobHandler.List)
 			r.Post("/", jobHandler.Create)
+			r.Post("/{id}/trigger", jobHandler.TriggerNow)
 			r.Get("/{id}", jobHandler.GetByID)
 			r.Patch("/{id}", jobHandler.UpdateStatus)
 			r.Delete("/{id}", jobHandler.Delete)
 		})
+
 	})
 
 	return r
 }
-

@@ -46,3 +46,37 @@ func (h *ExecutionHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, executions)
 }
+
+// ListGlobal — GET /v1/executions?page=1&limit=10
+func (h *ExecutionHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+
+	page := 1
+	if p := r.URL.Query().Get("page"); p != "" {
+		if parsed, err := strconv.Atoi(p); err == nil && parsed > 0 {
+			page = parsed
+		}
+	}
+
+	limit := 10
+	if l := r.URL.Query().Get("limit"); l != "" {
+		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
+			limit = parsed
+		}
+	}
+
+	offset := (page - 1) * limit
+
+	executions, total, err := h.executionRepo.ListByProject(r.Context(), proj.ID, limit, offset)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao buscar execuções globais")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"data":  executions,
+		"total": total,
+		"page":  page,
+		"limit": limit,
+	})
+}

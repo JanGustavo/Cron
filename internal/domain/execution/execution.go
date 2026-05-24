@@ -26,6 +26,12 @@ type Execution struct {
 	FinishedAt    *time.Time `json:"finished_at,omitempty"`
 }
 
+type ProjectExecution struct {
+	Execution
+	JobName string `json:"job_name"`
+	JobURL  string `json:"job_url"`
+}
+
 //retorna true se a execução recebeu resposta HTTP 
 func (e *Execution) isSuccess() bool {
 	return e.Status == StatusSuccess
