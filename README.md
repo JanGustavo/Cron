@@ -1,7 +1,7 @@
 # 🚀 CronFlow — Plataforma de Agendamento e Automação de Tarefas
-## Manual de Desenvolvimento e Arquitetura do MVP (Para Desenvolvedores Juniores e Estagiários)
+## Documentação de Desenvolvimento e Arquitetura do MVP
 
-Bem-vindo ao time de engenharia do **CronFlow**! Este guia foi feito sob medida para ajudar você a entender o funcionamento interno de nosso sistema, desde a arquitetura de múltiplos binários até os fluxos de dados mais complexos.
+Bem-vindo ao **CronFlow**! Este guia detalha o funcionamento interno de nosso sistema, desde a arquitetura de múltiplos binários até os fluxos de dados mais complexos.
 
 O CronFlow é uma plataforma SaaS de agendamento de tarefas e disparo de webhooks (um "CronTab em escala como serviço"). O sistema permite que nossos usuários cadastrem requisições HTTP agendadas (via expressões cron) que devem ser executadas com alta precisão, tolerância a falhas e total rastreabilidade.
 
@@ -280,7 +280,7 @@ curl -i http://localhost:8080/v1/executions?job_id=ID_DO_JOB_CRIADO \
 
 ---
 
-## 🏆 Regras de Ouro para Desenvolvedores Juniores e Estagiários
+## 🏆 Diretrizes de Desenvolvimento e Boas Práticas
 
 1.  **Não coloque lógica de negócios em Handlers**: Handlers devem apenas ler parâmetros HTTP, validar o JSON de entrada com nosso validador estruturado, acionar o `Service` correto e retornar a resposta formatada. Se o seu handler tiver ifs complexos ou queries ao banco, reescreva-o enviando essa lógica para o `Service`.
 2.  **Use SQL Puro e compile com SQLC**: Nós não utilizamos ORMs pesados como GORM neste projeto. Escrevemos queries SQL puras organizadas em arquivos na pasta `migrations/queries/`. Após alterar ou criar uma query, execute `make sqlc/gen` para gerar o código Go fortemente tipado automaticamente. Isso garante performance máxima e segurança em tempo de compilação!

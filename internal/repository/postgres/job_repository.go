@@ -166,6 +166,7 @@ func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error 
 		UPDATE jobs SET
 			consecutive_failures = consecutive_failures + 1,
 			status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'failing' ELSE status END,
+			last_run_at = NOW(),
 			updated_at = NOW()
 		WHERE id = $1`, id,
 	)
@@ -175,7 +176,7 @@ func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error 
 // ResetFailures limpa o contador após sucesso.
 func (r *JobRepository) ResetFailures(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET consecutive_failures = 0, status = 'active', updated_at = NOW() WHERE id = $1`,
+		`UPDATE jobs SET consecutive_failures = 0, status = 'active', last_run_at = NOW(), updated_at = NOW() WHERE id = $1`,
 		id,
 	)
 	return err
