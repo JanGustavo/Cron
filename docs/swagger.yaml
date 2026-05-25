@@ -1,0 +1,471 @@
+basePath: /
+definitions:
+  execution.Execution:
+    properties:
+      attempt_number:
+        type: integer
+      duration_ms:
+        type: integer
+      finished_at:
+        type: string
+      http_status:
+        description: '*int para permitir valor nil, omite o campo se for nil'
+        type: integer
+      id:
+        type: string
+      job_id:
+        type: string
+      response_body:
+        description: truncado em 2KB
+        type: string
+      started_at:
+        type: string
+      status:
+        $ref: '#/definitions/execution.Status'
+      triggered_at:
+        type: string
+    type: object
+  execution.Status:
+    enum:
+    - success
+    - failed
+    - timeout
+    type: string
+    x-enum-varnames:
+    - StatusSuccess
+    - StatusFailed
+    - StatusTimeout
+  job.HTTPMethod:
+    enum:
+    - GET
+    - POST
+    type: string
+    x-enum-varnames:
+    - MethodGet
+    - MethodPost
+  job.Job:
+    properties:
+      consecutive_failures:
+        type: integer
+      created_at:
+        type: string
+      headers:
+        additionalProperties:
+          type: string
+        description: '{"Content-Type": "application/json"}'
+        type: object
+      http_method:
+        $ref: '#/definitions/job.HTTPMethod'
+      id:
+        type: string
+      last_run_at:
+        description: se nunca rodou, é nil
+        type: string
+      name:
+        type: string
+      next_run_at:
+        type: string
+      payload:
+        additionalProperties: {}
+        description: corpo JSON
+        type: object
+      project_id:
+        type: string
+      schedule:
+        type: string
+      status:
+        $ref: '#/definitions/job.Status'
+      timezone:
+        description: '"AMERICA/Sao_Paulo", "UTC", etc'
+        type: string
+      updated_at:
+        type: string
+      url:
+        type: string
+      webhook_alert_url:
+        description: URL para callbacks de sucesso/falha
+        type: string
+    type: object
+  job.Status:
+    enum:
+    - active
+    - paused
+    - failing
+    type: string
+    x-enum-varnames:
+    - StatusActive
+    - StatusPaused
+    - StatusFailing
+host: localhost:8080
+info:
+  contact: {}
+  description: API do sistema CronFlow para agendamento e monitoramento de execução
+    de tarefas distribuídas em background.
+  title: CronFlow API
+  version: "1.0"
+paths:
+  /health:
+    get:
+      description: Retorna o status de saúde da aplicação e a conectividade com o
+        banco de dados Postgres.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: API operacional e banco conectado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Banco de dados indisponível
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Verificar saúde da API
+      tags:
+      - Health
+  /v1/executions:
+    get:
+      description: Retorna a lista paginada de todas as execuções ocorridas nos Jobs
+        do projeto autenticado.
+      parameters:
+      - description: Número da página (padrão 1)
+        in: query
+        name: page
+        type: integer
+      - description: Itens por página (1-100, padrão 10)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Dados paginados contendo data ([]execution.ProjectExecution),
+            total, page, limit
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Não autenticado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro ao buscar execuções globais
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Listar execuções globais do Projeto
+      tags:
+      - Executions
+  /v1/jobs:
+    get:
+      description: Retorna todos os agendamentos de Jobs do projeto autenticado.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Lista de jobs do projeto
+          schema:
+            items:
+              $ref: '#/definitions/job.Job'
+            type: array
+        "401":
+          description: Não autenticado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro ao listar jobs
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Listar Jobs
+      tags:
+      - Jobs
+    post:
+      consumes:
+      - application/json
+      description: Cria um novo agendamento de Job para o projeto autenticado.
+      parameters:
+      - description: Dados para criação do Job (name, schedule, url, etc.)
+        in: body
+        name: job
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Job criado com sucesso
+          schema:
+            $ref: '#/definitions/job.Job'
+        "400":
+          description: Parâmetros inválidos ou corpo incorreto
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: API Key não fornecida ou inválida
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Limite de jobs do plano atingido
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro interno do servidor
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Criar Job
+      tags:
+      - Jobs
+  /v1/jobs/{id}:
+    delete:
+      description: Remove um Job do banco de dados e limpa os agendamentos associados.
+      parameters:
+      - description: ID do Job
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Job deletado com sucesso
+        "401":
+          description: Não autenticado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Job não encontrado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro ao deletar job
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Excluir Job
+      tags:
+      - Jobs
+    get:
+      description: Retorna os detalhes de um Job específico pelo ID, desde que pertença
+        ao projeto autenticado.
+      parameters:
+      - description: ID do Job
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Detalhes do job
+          schema:
+            $ref: '#/definitions/job.Job'
+        "401":
+          description: Não autenticado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Acesso negado ao job de outro projeto
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Job não encontrado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro ao buscar job
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Buscar Job por ID
+      tags:
+      - Jobs
+    patch:
+      consumes:
+      - application/json
+      description: Altera o status do Job entre 'active' e 'paused'.
+      parameters:
+      - description: ID do Job
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Novo status (active ou paused)
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      responses:
+        "204":
+          description: Status atualizado com sucesso
+        "400":
+          description: Status inválido ou corpo incorreto
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Não autenticado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Job não encontrado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro ao atualizar status
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Atualizar Status do Job
+      tags:
+      - Jobs
+  /v1/jobs/{id}/executions:
+    get:
+      description: Retorna a lista de tentativas de execução recentes de um Job específico.
+      parameters:
+      - description: ID do Job
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Limite de resultados (1-200, padrão 50)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Lista de execuções
+          schema:
+            items:
+              $ref: '#/definitions/execution.Execution'
+            type: array
+        "401":
+          description: Não autenticado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Job não encontrado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro ao buscar execuções
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Listar execuções de um Job
+      tags:
+      - Executions
+  /v1/jobs/{id}/trigger:
+    post:
+      description: Enfileira a execução de um Job de forma manual e imediata, enviando
+        para o processamento em background.
+      parameters:
+      - description: ID do Job
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: Execução manual enfileirada com sucesso
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Não autenticado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "403":
+          description: Acesso negado ao job de outro projeto
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "404":
+          description: Job não encontrado
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "500":
+          description: Erro interno ao enfileirar execução
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      security:
+      - ApiKeyAuth: []
+      summary: Disparar Job Imediatamente
+      tags:
+      - Jobs
+securityDefinitions:
+  ApiKeyAuth:
+    description: Tipo "Bearer <sua-api-key>" para se autenticar.
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

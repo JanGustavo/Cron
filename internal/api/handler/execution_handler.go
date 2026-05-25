@@ -7,9 +7,13 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/JanGustavo/Cron/internal/api/middleware"
+	"github.com/JanGustavo/Cron/internal/domain/execution"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/service"
 )
+
+// Mantém o import de execution ativo para o Swagger
+var _ = execution.StatusSuccess
 
 type ExecutionHandler struct {
 	jobService    *service.JobService
@@ -21,6 +25,18 @@ func NewExecutionHandler(jobService *service.JobService, executionRepo *postgres
 }
 
 // List — GET /v1/jobs/{id}/executions?limit=50
+// @Summary Listar execuções de um Job
+// @Description Retorna a lista de tentativas de execução recentes de um Job específico.
+// @Tags Executions
+// @Produce json
+// @Param id path string true "ID do Job"
+// @Param limit query int false "Limite de resultados (1-200, padrão 50)"
+// @Success 200 {array} execution.Execution "Lista de execuções"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 404 {object} map[string]string "Job não encontrado"
+// @Failure 500 {object} map[string]string "Erro ao buscar execuções"
+// @Security ApiKeyAuth
+// @Router /v1/jobs/{id}/executions [get]
 func (h *ExecutionHandler) List(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	jobID := chi.URLParam(r, "id")
@@ -48,6 +64,17 @@ func (h *ExecutionHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // ListGlobal — GET /v1/executions?page=1&limit=10
+// @Summary Listar execuções globais do Projeto
+// @Description Retorna a lista paginada de todas as execuções ocorridas nos Jobs do projeto autenticado.
+// @Tags Executions
+// @Produce json
+// @Param page query int false "Número da página (padrão 1)"
+// @Param limit query int false "Itens por página (1-100, padrão 10)"
+// @Success 200 {object} map[string]any "Dados paginados contendo data ([]execution.ProjectExecution), total, page, limit"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 500 {object} map[string]string "Erro ao buscar execuções globais"
+// @Security ApiKeyAuth
+// @Router /v1/executions [get]
 func (h *ExecutionHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 

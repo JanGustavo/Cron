@@ -7,7 +7,8 @@ import (
 	"github.com/JanGustavo/Cron/internal/api/handler"
 	"github.com/JanGustavo/Cron/internal/api/middleware"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
-	
+	_ "github.com/JanGustavo/Cron/docs"
+	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
 func New(
@@ -27,12 +28,14 @@ func New(
 
 	// Rota publica — sem autenticacao
 	r.Get("/health", healthHandler.Check)
+	r.Get("/swagger/*", httpSwagger.WrapHandler)
 
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(userRepo))
 
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
+		r.Get("/v1/executions", executionHandler.ListGlobal)
 
 		r.Route("/v1/jobs", func(r chi.Router) {
 			r.Get("/", jobHandler.List)

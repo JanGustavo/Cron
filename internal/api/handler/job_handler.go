@@ -21,6 +21,19 @@ func NewJobHandler(jobService *service.JobService) *JobHandler {
 }
 
 // Create — POST /v1/jobs
+// @Summary Criar Job
+// @Description Cria um novo agendamento de Job para o projeto autenticado.
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param job body object true "Dados para criação do Job (name, schedule, url, etc.)"
+// @Success 201 {object} job.Job "Job criado com sucesso"
+// @Failure 400 {object} map[string]string "Parâmetros inválidos ou corpo incorreto"
+// @Failure 401 {object} map[string]string "API Key não fornecida ou inválida"
+// @Failure 403 {object} map[string]string "Limite de jobs do plano atingido"
+// @Failure 500 {object} map[string]string "Erro interno do servidor"
+// @Security ApiKeyAuth
+// @Router /v1/jobs [post]
 func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 
@@ -78,6 +91,15 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 }
 
 // List — GET /v1/jobs
+// @Summary Listar Jobs
+// @Description Retorna todos os agendamentos de Jobs do projeto autenticado.
+// @Tags Jobs
+// @Produce json
+// @Success 200 {array} job.Job "Lista de jobs do projeto"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 500 {object} map[string]string "Erro ao listar jobs"
+// @Security ApiKeyAuth
+// @Router /v1/jobs [get]
 func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 
@@ -91,6 +113,18 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 // GetByID — GET /v1/jobs/{id}
+// @Summary Buscar Job por ID
+// @Description Retorna os detalhes de um Job específico pelo ID, desde que pertença ao projeto autenticado.
+// @Tags Jobs
+// @Produce json
+// @Param id path string true "ID do Job"
+// @Success 200 {object} job.Job "Detalhes do job"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 403 {object} map[string]string "Acesso negado ao job de outro projeto"
+// @Failure 404 {object} map[string]string "Job não encontrado"
+// @Failure 500 {object} map[string]string "Erro ao buscar job"
+// @Security ApiKeyAuth
+// @Router /v1/jobs/{id} [get]
 func (h *JobHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -112,6 +146,19 @@ func (h *JobHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateStatus — PATCH /v1/jobs/{id}
+// @Summary Atualizar Status do Job
+// @Description Altera o status do Job entre 'active' e 'paused'.
+// @Tags Jobs
+// @Accept json
+// @Param id path string true "ID do Job"
+// @Param body body object true "Novo status (active ou paused)"
+// @Success 204 "Status atualizado com sucesso"
+// @Failure 400 {object} map[string]string "Status inválido ou corpo incorreto"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 404 {object} map[string]string "Job não encontrado"
+// @Failure 500 {object} map[string]string "Erro ao atualizar status"
+// @Security ApiKeyAuth
+// @Router /v1/jobs/{id} [patch]
 func (h *JobHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -144,6 +191,16 @@ func (h *JobHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // Delete — DELETE /v1/jobs/{id}
+// @Summary Excluir Job
+// @Description Remove um Job do banco de dados e limpa os agendamentos associados.
+// @Tags Jobs
+// @Param id path string true "ID do Job"
+// @Success 204 "Job deletado com sucesso"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 404 {object} map[string]string "Job não encontrado"
+// @Failure 500 {object} map[string]string "Erro ao deletar job"
+// @Security ApiKeyAuth
+// @Router /v1/jobs/{id} [delete]
 func (h *JobHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	id := chi.URLParam(r, "id")
@@ -162,6 +219,18 @@ func (h *JobHandler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 // TriggerNow — POST /v1/jobs/{id}/trigger
+// @Summary Disparar Job Imediatamente
+// @Description Enfileira a execução de um Job de forma manual e imediata, enviando para o processamento em background.
+// @Tags Jobs
+// @Produce json
+// @Param id path string true "ID do Job"
+// @Success 200 {object} map[string]string "Execução manual enfileirada com sucesso"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 403 {object} map[string]string "Acesso negado ao job de outro projeto"
+// @Failure 404 {object} map[string]string "Job não encontrado"
+// @Failure 500 {object} map[string]string "Erro interno ao enfileirar execução"
+// @Security ApiKeyAuth
+// @Router /v1/jobs/{id}/trigger [post]
 func (h *JobHandler) TriggerNow(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	jobID := chi.URLParam(r, "id")

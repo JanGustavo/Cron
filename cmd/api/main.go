@@ -13,6 +13,16 @@ import (
 	"github.com/JanGustavo/Cron/internal/service"
 )
 
+// @title CronFlow API
+// @version 1.0
+// @description API do sistema CronFlow para agendamento e monitoramento de execução de tarefas distribuídas em background.
+// @host localhost:8080
+// @BasePath /
+
+// @securityDefinitions.apikey ApiKeyAuth
+// @in header
+// @name Authorization
+// @description Tipo "Bearer <sua-api-key>" para se autenticar.
 func main() {
 	// 1. carrega as configuracoes
 	cfg := config.Load()

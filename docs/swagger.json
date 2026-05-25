@@ -1,0 +1,708 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "API do sistema CronFlow para agendamento e monitoramento de execução de tarefas distribuídas em background.",
+        "title": "CronFlow API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/health": {
+            "get": {
+                "description": "Retorna o status de saúde da aplicação e a conectividade com o banco de dados Postgres.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Health"
+                ],
+                "summary": "Verificar saúde da API",
+                "responses": {
+                    "200": {
+                        "description": "API operacional e banco conectado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Banco de dados indisponível",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/executions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retorna a lista paginada de todas as execuções ocorridas nos Jobs do projeto autenticado.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Executions"
+                ],
+                "summary": "Listar execuções globais do Projeto",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Número da página (padrão 1)",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Itens por página (1-100, padrão 10)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Dados paginados contendo data ([]execution.ProjectExecution), total, page, limit",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao buscar execuções globais",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/jobs": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retorna todos os agendamentos de Jobs do projeto autenticado.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Listar Jobs",
+                "responses": {
+                    "200": {
+                        "description": "Lista de jobs do projeto",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/job.Job"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao listar jobs",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Cria um novo agendamento de Job para o projeto autenticado.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Criar Job",
+                "parameters": [
+                    {
+                        "description": "Dados para criação do Job (name, schedule, url, etc.)",
+                        "name": "job",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Job criado com sucesso",
+                        "schema": {
+                            "$ref": "#/definitions/job.Job"
+                        }
+                    },
+                    "400": {
+                        "description": "Parâmetros inválidos ou corpo incorreto",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "API Key não fornecida ou inválida",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Limite de jobs do plano atingido",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro interno do servidor",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/jobs/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retorna os detalhes de um Job específico pelo ID, desde que pertença ao projeto autenticado.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Buscar Job por ID",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID do Job",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Detalhes do job",
+                        "schema": {
+                            "$ref": "#/definitions/job.Job"
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Acesso negado ao job de outro projeto",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Job não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao buscar job",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Remove um Job do banco de dados e limpa os agendamentos associados.",
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Excluir Job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID do Job",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Job deletado com sucesso"
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Job não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao deletar job",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Altera o status do Job entre 'active' e 'paused'.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Atualizar Status do Job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID do Job",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Novo status (active ou paused)",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Status atualizado com sucesso"
+                    },
+                    "400": {
+                        "description": "Status inválido ou corpo incorreto",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Job não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao atualizar status",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/jobs/{id}/executions": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retorna a lista de tentativas de execução recentes de um Job específico.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Executions"
+                ],
+                "summary": "Listar execuções de um Job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID do Job",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Limite de resultados (1-200, padrão 50)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Lista de execuções",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/execution.Execution"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Job não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao buscar execuções",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/jobs/{id}/trigger": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Enfileira a execução de um Job de forma manual e imediata, enviando para o processamento em background.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Disparar Job Imediatamente",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID do Job",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Execução manual enfileirada com sucesso",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Acesso negado ao job de outro projeto",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Job não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro interno ao enfileirar execução",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "execution.Execution": {
+            "type": "object",
+            "properties": {
+                "attempt_number": {
+                    "type": "integer"
+                },
+                "duration_ms": {
+                    "type": "integer"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "http_status": {
+                    "description": "*int para permitir valor nil, omite o campo se for nil",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "job_id": {
+                    "type": "string"
+                },
+                "response_body": {
+                    "description": "truncado em 2KB",
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/execution.Status"
+                },
+                "triggered_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "execution.Status": {
+            "type": "string",
+            "enum": [
+                "success",
+                "failed",
+                "timeout"
+            ],
+            "x-enum-varnames": [
+                "StatusSuccess",
+                "StatusFailed",
+                "StatusTimeout"
+            ]
+        },
+        "job.HTTPMethod": {
+            "type": "string",
+            "enum": [
+                "GET",
+                "POST"
+            ],
+            "x-enum-varnames": [
+                "MethodGet",
+                "MethodPost"
+            ]
+        },
+        "job.Job": {
+            "type": "object",
+            "properties": {
+                "consecutive_failures": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "headers": {
+                    "description": "{\"Content-Type\": \"application/json\"}",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "http_method": {
+                    "$ref": "#/definitions/job.HTTPMethod"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "last_run_at": {
+                    "description": "se nunca rodou, é nil",
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "next_run_at": {
+                    "type": "string"
+                },
+                "payload": {
+                    "description": "corpo JSON",
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "project_id": {
+                    "type": "string"
+                },
+                "schedule": {
+                    "type": "string"
+                },
+                "status": {
+                    "$ref": "#/definitions/job.Status"
+                },
+                "timezone": {
+                    "description": "\"AMERICA/Sao_Paulo\", \"UTC\", etc",
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "webhook_alert_url": {
+                    "description": "URL para callbacks de sucesso/falha",
+                    "type": "string"
+                }
+            }
+        },
+        "job.Status": {
+            "type": "string",
+            "enum": [
+                "active",
+                "paused",
+                "failing"
+            ],
+            "x-enum-varnames": [
+                "StatusActive",
+                "StatusPaused",
+                "StatusFailing"
+            ]
+        }
+    },
+    "securityDefinitions": {
+        "ApiKeyAuth": {
+            "description": "Tipo \"Bearer \u003csua-api-key\u003e\" para se autenticar.",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}
