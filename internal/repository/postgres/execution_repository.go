@@ -57,31 +57,78 @@ func (r *ExecutionRepository) ListByJob(ctx context.Context, jobID string, limit
 	return executions, nil
 }
 
-func (r *ExecutionRepository) ListByProject(ctx context.Context, projectID string, limit, offset int) ([]*execution.ProjectExecution, int, error) {
-	var total int
-	err := r.db.QueryRowContext(ctx, `
+func (r *ExecutionRepository) ListByProject(
+	ctx context.Context,
+	projectID string,
+	limit, offset int,
+	search string,
+	status string,
+	startDate, endDate string,
+) ([]*execution.ProjectExecution, int, error) {
+	var args []interface{}
+	args = append(args, projectID)
+	argCount := 1
+
+	whereClause := "WHERE j.project_id = $1"
+
+	if status != "" {
+		argCount++
+		args = append(args, status)
+		whereClause += fmt.Sprintf(" AND e.status = $%d", argCount)
+	}
+
+	if search != "" {
+		argCount++
+		args = append(args, "%"+search+"%")
+		whereClause += fmt.Sprintf(" AND (j.name ILIKE $%d OR j.url ILIKE $%d OR e.id::text ILIKE $%d OR e.job_id::text ILIKE $%d)", argCount, argCount, argCount, argCount)
+	}
+
+	if startDate != "" {
+		argCount++
+		args = append(args, startDate)
+		whereClause += fmt.Sprintf(" AND e.triggered_at >= $%d::timestamptz", argCount)
+	}
+
+	if endDate != "" {
+		argCount++
+		args = append(args, endDate+" 23:59:59.999")
+		whereClause += fmt.Sprintf(" AND e.triggered_at <= $%d::timestamptz", argCount)
+	}
+
+	// 1. Query de contagem com mesmos filtros
+	countQuery := fmt.Sprintf(`
 		SELECT COUNT(e.id)
 		FROM executions e
 		INNER JOIN jobs j ON j.id = e.job_id
-		WHERE j.project_id = $1`,
-		projectID,
-	).Scan(&total)
+		%s`, whereClause)
+
+	var total int
+	err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total)
 	if err != nil {
 		return nil, 0, fmt.Errorf("ExecutionRepository.ListByProject count: %w", err)
 	}
 
-	rows, err := r.db.QueryContext(ctx, `
+	// 2. Query de busca paginada e filtrada
+	argCount++
+	args = append(args, limit)
+	limitArg := argCount
+
+	argCount++
+	args = append(args, offset)
+	offsetArg := argCount
+
+	query := fmt.Sprintf(`
 		SELECT 
 			e.id, e.job_id, e.status, e.http_status, e.duration_ms, 
 			e.response_body, e.attempt_number, e.triggered_at,
 			j.name as job_name, j.url as job_url
 		FROM executions e
 		INNER JOIN jobs j ON j.id = e.job_id
-		WHERE j.project_id = $1
+		%s
 		ORDER BY e.triggered_at DESC
-		LIMIT $2 OFFSET $3`,
-		projectID, limit, offset,
-	)
+		LIMIT $%d OFFSET $%d`, whereClause, limitArg, offsetArg)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("ExecutionRepository.ListByProject query: %w", err)
 	}
@@ -91,7 +138,7 @@ func (r *ExecutionRepository) ListByProject(ctx context.Context, projectID strin
 	for rows.Next() {
 		pe := &execution.ProjectExecution{}
 		var httpStatus sql.NullInt64
-		
+
 		err := rows.Scan(
 			&pe.ID, &pe.JobID, &pe.Status, &httpStatus, &pe.DurationMs,
 			&pe.ResponseBody, &pe.AttemptNumber, &pe.TriggeredAt,
@@ -100,12 +147,12 @@ func (r *ExecutionRepository) ListByProject(ctx context.Context, projectID strin
 		if err != nil {
 			return nil, 0, fmt.Errorf("ExecutionRepository.ListByProject scan: %w", err)
 		}
-		
+
 		if httpStatus.Valid {
 			val := int(httpStatus.Int64)
 			pe.HTTPStatus = &val
 		}
-		
+
 		executions = append(executions, pe)
 	}
 

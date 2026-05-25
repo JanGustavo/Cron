@@ -50,9 +50,10 @@ func main() {
 	healthHandler := handler.NewHealthHandler(db)
 	jobHandler := handler.NewJobHandler(jobService)
 	executionHandler := handler.NewExecutionHandler(jobService, executionRepo)
+	authHandler := handler.NewAuthHandler(userRepo, cfg)
 
 	// Router
-	r := router.New(userRepo, jobHandler, healthHandler, executionHandler)
+	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, cfg.JWTSecret)
 
 	// 5. sobe o servidor
 	log.Printf("API rodando em http://localhost:%s", cfg.Port)

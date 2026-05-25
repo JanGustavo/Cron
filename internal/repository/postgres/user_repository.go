@@ -28,13 +28,64 @@ func NewUserRepository(db *sql.DB) *UserRepository{
 func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO users (email) VALUES ($1) RETURNING id, email, plan, created_at`,
+		`INSERT INTO users (email) VALUES ($1) RETURNING id, email, plan, COALESCE(password_hash, ''), created_at`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.CreateUser: %w", err)
 	}
 	return u, nil
+}
+
+// CreateUserWithPassword insere um novo usuário com senha no banco.
+func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, passwordHash string) (*user.User, error) {
+	u := &user.User{}
+	err := r.db.QueryRowContext(ctx,
+		`INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, plan, COALESCE(password_hash, ''), created_at`,
+		email, passwordHash,
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("UserRepository.CreateUserWithPassword: %w", err)
+	}
+	return u, nil
+}
+
+// FindByEmail busca um usuário pelo email.
+func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*user.User, error) {
+	u := &user.User{}
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, email, plan, COALESCE(password_hash, ''), created_at FROM users WHERE email = $1 LIMIT 1`,
+		email,
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("UserRepository.FindByEmail: %w", err)
+	}
+	return u, nil
+}
+
+// FindProjectsByUserID retorna todos os projetos de um usuário.
+func (r *UserRepository) FindProjectsByUserID(ctx context.Context, userID string) ([]*project.Project, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, user_id, name, created_at FROM projects WHERE user_id = $1`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("UserRepository.FindProjectsByUserID: %w", err)
+	}
+	defer rows.Close()
+
+	var projects []*project.Project
+	for rows.Next() {
+		p := &project.Project{}
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.CreatedAt); err != nil {
+			return nil, fmt.Errorf("UserRepository.FindProjectsByUserID scan: %w", err)
+		}
+		projects = append(projects, p)
+	}
+	return projects, nil
 }
 
 // CreateProject insere um projeto vinculado a um usuário.
@@ -94,12 +145,12 @@ func (r *UserRepository) FindProjectByKeyHash(ctx context.Context, keyHash strin
 func (r *UserRepository) FindUserByProjectID(ctx context.Context, projectID string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.plan, u.created_at
+		SELECT u.id, u.email, u.plan, COALESCE(u.password_hash, ''), u.created_at
 		FROM users u
 		INNER JOIN projects p ON p.user_id = u.id
 		WHERE p.id = $1`,
 		projectID,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.CreatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil

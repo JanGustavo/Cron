@@ -16,10 +16,11 @@ const (
 )
 
 type User struct {
-	ID    string
-	Email string
-	Plan  Plan
-	CreatedAt time.Time
+	ID           string
+	Email        string
+	PasswordHash string
+	Plan         Plan
+	CreatedAt    time.Time
 }
 
 

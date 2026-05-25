@@ -94,7 +94,21 @@ func (h *ExecutionHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 
 	offset := (page - 1) * limit
 
-	executions, total, err := h.executionRepo.ListByProject(r.Context(), proj.ID, limit, offset)
+	search := r.URL.Query().Get("search")
+	status := r.URL.Query().Get("status")
+	startDate := r.URL.Query().Get("start_date")
+	endDate := r.URL.Query().Get("end_date")
+
+	executions, total, err := h.executionRepo.ListByProject(
+		r.Context(),
+		proj.ID,
+		limit,
+		offset,
+		search,
+		status,
+		startDate,
+		endDate,
+	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "erro ao buscar execuções globais")
 		return

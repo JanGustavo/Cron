@@ -18,32 +18,48 @@ type contextKey string
 
 const projectContextKey contextKey = "project"
 
-// Auth retorna um middleware chi que valida a API Key em toda request.
+// Auth retorna um middleware chi que valida a API Key ou Token JWT em toda request.
 // Fluxo:
-//  1. Lê "Authorization: Bearer cf_live_..."
-//  2. Calcula SHA-256 da key
-//  3. Consulta o banco — se não achar, 401
+//  1. Lê o cabeçalho "Authorization: Bearer <token>"
+//  2. Se começar com "cf_live_", trata como API Key tradicional (faz hash e consulta DB)
+//  3. Senão, decodifica e valida criptograficamente como Token JWT (não encosta no banco, super rápido!)
 //  4. Injeta o *project.Project no context para os handlers usarem
-func Auth(userRepo *postgres.UserRepository) func(http.Handler) http.Handler {
+func Auth(userRepo *postgres.UserRepository, jwtSecret string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Extrai a key do header
-			apiKey := extractBearerToken(r)
-			if apiKey == "" {
+			token := extractBearerToken(r)
+			if token == "" {
 				writeUnauthorized(w, "Authorization header ausente ou inválido")
 				return
 			}
 
-			// Calcula hash e consulta o banco
-			keyHash := auth.Hash(apiKey)
-			proj, err := userRepo.FindProjectByKeyHash(r.Context(), keyHash)
-			if err != nil {
-				writeUnauthorized(w, "erro interno ao validar credenciais")
-				return
-			}
-			if proj == nil {
-				writeUnauthorized(w, "API Key inválida")
-				return
+			var proj *project.Project
+			var err error
+
+			if strings.HasPrefix(token, "cf_live_") {
+				// Autenticação tradicional via API Key (exclusivo para SDKs / Integrações cURL)
+				keyHash := auth.Hash(token)
+				proj, err = userRepo.FindProjectByKeyHash(r.Context(), keyHash)
+				if err != nil {
+					writeUnauthorized(w, "erro interno ao validar API Key")
+					return
+				}
+				if proj == nil {
+					writeUnauthorized(w, "API Key inválida ou revogada")
+					return
+				}
+			} else {
+				// Autenticação em tempo real via Token JWT (Painel do Desenvolvedor)
+				claims, err := auth.ValidateToken(token, jwtSecret)
+				if err != nil {
+					writeUnauthorized(w, "Token JWT inválido ou expirado")
+					return
+				}
+				proj = &project.Project{
+					ID:     claims.ProjectID,
+					UserID: claims.UserID,
+					Name:   "Projeto Autenticado via JWT",
+				}
 			}
 
 			// Injeta o projeto no context — handlers leem com ProjectFromContext()

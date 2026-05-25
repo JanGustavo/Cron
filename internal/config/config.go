@@ -20,6 +20,7 @@ type Config struct {
 	RedisURL        string
 	MaxJobsFreePlan int
 	MaxJobsPaidPlan int
+	JWTSecret       string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -35,6 +36,7 @@ func Load() *Config {
 		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
 		MaxJobsFreePlan: getEnvAsInt("MAX_JOBS_FREE_PLAN", 3),
 		MaxJobsPaidPlan: getEnvAsInt("MAX_JOBS_PAID_PLAN", 20),
+		JWTSecret:       getEnv("JWT_SECRET", "cronflow_jwt_secret_fallback_key_2026_xyz"),
 	}
 }
 

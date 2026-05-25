@@ -16,6 +16,8 @@ func New(
 	jobHandler *handler.JobHandler,
 	healthHandler *handler.HealthHandler,
 	executionHandler *handler.ExecutionHandler,
+	authHandler *handler.AuthHandler,
+	jwtSecret string,
 ) *chi.Mux {
 	r := chi.NewRouter()
 
@@ -26,13 +28,15 @@ func New(
 	r.Use(chimiddleware.Recoverer)
 	r.Use(chimiddleware.RealIP)
 
-	// Rota publica — sem autenticacao
+	// Rotas publicas — sem autenticacao
 	r.Get("/health", healthHandler.Check)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
+	r.Post("/v1/auth/signup", authHandler.Signup)
+	r.Post("/v1/auth/login", authHandler.Login)
 
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {
-		r.Use(middleware.Auth(userRepo))
+		r.Use(middleware.Auth(userRepo, jwtSecret))
 
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
 		r.Get("/v1/executions", executionHandler.ListGlobal)
