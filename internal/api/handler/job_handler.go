@@ -254,6 +254,73 @@ func (h *JobHandler) TriggerNow(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// Update — PUT /v1/jobs/{id}
+// @Summary Atualizar Configurações do Job
+// @Description Altera os campos configuráveis de um Job (nome, cron, url, etc.).
+// @Tags Jobs
+// @Accept json
+// @Produce json
+// @Param id path string true "ID do Job"
+// @Param body body object true "Campos do Job a serem atualizados"
+// @Success 200 {object} job.Job "Job atualizado com sucesso"
+// @Failure 400 {object} map[string]string "Parâmetros inválidos"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 404 {object} map[string]string "Job não encontrado"
+// @Failure 500 {object} map[string]string "Erro ao atualizar job"
+// @Security ApiKeyAuth
+// @Router /v1/jobs/{id} [put]
+func (h *JobHandler) Update(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	id := chi.URLParam(r, "id")
+
+	var input struct {
+		Name            string            `json:"name"`
+		Schedule        string            `json:"schedule"`
+		Timezone        string            `json:"timezone"`
+		URL             string            `json:"url"`
+		HTTPMethod      string            `json:"http_method"`
+		Headers         map[string]string `json:"headers"`
+		Payload         map[string]any    `json:"payload"`
+		WebhookAlertURL *string           `json:"webhook_alert_url"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "body invalido")
+		return
+	}
+
+	if input.Name == "" || input.Schedule == "" || input.URL == "" {
+		writeError(w, http.StatusBadRequest, "name, schedule e url sao obrigatorios")
+		return
+	}
+
+	updated, err := h.jobService.Update(r.Context(), service.UpdateJobInput{
+		ID:              id,
+		ProjectID:       proj.ID,
+		Name:            input.Name,
+		Schedule:        input.Schedule,
+		Timezone:        input.Timezone,
+		URL:             input.URL,
+		HTTPMethod:      input.HTTPMethod,
+		Headers:         input.Headers,
+		Payload:         input.Payload,
+		WebhookAlertURL: input.WebhookAlertURL,
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, service.ErrJobNotFound):
+			writeError(w, http.StatusNotFound, "job nao encontrado")
+		case errors.Is(err, service.ErrInvalidSchedule):
+			writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			writeError(w, http.StatusInternalServerError, "erro ao atualizar job")
+		}
+		return
+	}
+
+	writeJSON(w, http.StatusOK, updated)
+}
+
 // writeJSON serializa qualquer valor para JSON e escreve na response.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")

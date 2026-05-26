@@ -208,3 +208,40 @@ func (r *JobRepository) CountByProject(ctx context.Context, projectID string) (i
 	).Scan(&count)
 	return count, err
 }
+
+// Update atualiza as configurações de um job no banco.
+func (r *JobRepository) Update(ctx context.Context, j *job.Job) error {
+	headers, _ := json.Marshal(j.Headers)
+	payload, _ := json.Marshal(j.Payload)
+
+	query := `
+		UPDATE jobs SET
+			name = $1,
+			schedule = $2,
+			timezone = $3,
+			url = $4,
+			http_method = $5,
+			headers = $6,
+			payload = $7,
+			webhook_alert_url = $8,
+			next_run_at = $9,
+			updated_at = NOW()
+		WHERE id = $10`
+
+	_, err := r.db.ExecContext(ctx, query,
+		j.Name,
+		j.Schedule,
+		j.Timezone,
+		j.URL,
+		j.HTTPMethod,
+		headers,
+		payload,
+		j.WebhookAlertURL,
+		j.NextRunAt,
+		j.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("JobRepository.Update: %w", err)
+	}
+	return nil
+}

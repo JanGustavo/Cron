@@ -10,6 +10,7 @@ import (
 	"github.com/hibiken/asynq"
 
 	"github.com/JanGustavo/Cron/internal/domain/execution"
+	"github.com/JanGustavo/Cron/internal/domain/job"
 	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/service"
@@ -54,6 +55,11 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 	if j == nil {
 		// Job foi deletado enquanto estava na fila — descarta sem retry
 		log.Printf("worker: job %s não encontrado — descartando task", p.JobID)
+		return nil
+	}
+
+	if j.Status == job.StatusFailing || j.Status == job.StatusPaused {
+		log.Printf("worker: job %s está inativo/suspenso (status: %s) — descartando execução", p.JobID, j.Status)
 		return nil
 	}
 
@@ -125,6 +131,13 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 			}
 			w.alertService.Notify(*updatedJob.WebhookAlertURL, j.ID,
 				updatedJob.ConsecutiveFailures, statusCode, responseBody)
+		}
+
+		// Se o job entrou em estado de falha (status = failing ou consecutiveFailures >= 3),
+		// devemos instruir o Asynq a NÃO fazer mais retries dessa execução!
+		if updatedJob != nil && (updatedJob.Status == job.StatusFailing || updatedJob.ConsecutiveFailures >= 3) {
+			log.Printf("worker: job %s atingiu o limite de falhas consecutivas (%d) — suspendendo e cancelando retries da fila", j.ID, updatedJob.ConsecutiveFailures)
+			return fmt.Errorf("job %s suspenso após %d falhas: %w", j.ID, updatedJob.ConsecutiveFailures, asynq.SkipRetry)
 		}
 
 		return fmt.Errorf("job %s falhou — HTTP status: %v", j.ID, httpStatus)

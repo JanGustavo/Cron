@@ -177,3 +177,49 @@ func (s *JobService) TriggerNow(ctx context.Context, jobID, projectID string) er
 	// 2. Dispara o enfileiramento imediato no Redis para o Worker executar
 	return s.enqueuer.Enqueue(ctx, j.ID)
 }
+
+// UpdateJobInput são os dados para atualizar um job.
+type UpdateJobInput struct {
+	ID              string
+	ProjectID       string
+	Name            string
+	Schedule        string
+	Timezone        string
+	URL             string
+	HTTPMethod      string
+	Headers         map[string]string
+	Payload         map[string]any
+	WebhookAlertURL *string
+}
+
+// Update atualiza as configurações de um job no banco, validando permissões e recalculando o next_run_at.
+func (s *JobService) Update(ctx context.Context, input UpdateJobInput) (*job.Job, error) {
+	j, err := s.GetByID(ctx, input.ID, input.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Se o schedule mudou, valida e recalcula a próxima execução
+	if j.Schedule != input.Schedule || j.Timezone != input.Timezone {
+		nextRun, err := cronparser.NextRun(input.Schedule, input.Timezone, time.Now())
+		if err != nil {
+			return nil, ErrInvalidSchedule
+		}
+		j.NextRunAt = nextRun
+	}
+
+	j.Name = input.Name
+	j.Schedule = input.Schedule
+	j.Timezone = input.Timezone
+	j.URL = input.URL
+	j.HTTPMethod = job.HTTPMethod(input.HTTPMethod)
+	j.Headers = input.Headers
+	j.Payload = input.Payload
+	j.WebhookAlertURL = input.WebhookAlertURL
+
+	if err := s.jobRepo.Update(ctx, j); err != nil {
+		return nil, fmt.Errorf("JobService.Update: %w", err)
+	}
+
+	return j, nil
+}

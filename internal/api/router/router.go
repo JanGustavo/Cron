@@ -47,6 +47,7 @@ func New(
 			r.Post("/{id}/trigger", jobHandler.TriggerNow)
 			r.Get("/{id}", jobHandler.GetByID)
 			r.Patch("/{id}", jobHandler.UpdateStatus)
+			r.Put("/{id}", jobHandler.Update)
 			r.Delete("/{id}", jobHandler.Delete)
 		})
 
