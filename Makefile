@@ -44,8 +44,12 @@ test:
 lint:
 	golangci-lint run ./...
 
+VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "v1.0.0-dev")
+BUILD_TIME := $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+LDFLAGS := -ldflags "-X github.com/JanGustavo/Cron/internal/api/handler.Version=$(VERSION) -X github.com/JanGustavo/Cron/internal/api/handler.BuildTime=$(BUILD_TIME)"
+
 # Build de todos os binários
 build:
-	go build -o bin/api ./cmd/api
-	go build -o bin/worker ./cmd/worker
-	go build -o bin/scheduler ./cmd/scheduler
+	go build $(LDFLAGS) -o bin/api ./cmd/api
+	go build $(LDFLAGS) -o bin/worker ./cmd/worker
+	go build $(LDFLAGS) -o bin/scheduler ./cmd/scheduler
