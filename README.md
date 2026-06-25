@@ -1,48 +1,52 @@
 # 🚀 CronFlow — Plataforma de Agendamento e Automação de Tarefas
-## Documentação de Desenvolvimento e Arquitetura do MVP
 
-Bem-vindo ao **CronFlow**! Este guia detalha o funcionamento interno de nosso sistema, desde a arquitetura de múltiplos binários até os fluxos de dados mais complexos.
+## 🌐 Link de Produção
+O sistema está implantado e pronto para uso em: **[https://cron.jangustavo.me/](https://cron.jangustavo.me/)**
 
-O CronFlow é uma plataforma SaaS de agendamento de tarefas e disparo de webhooks (um "CronTab em escala como serviço"). O sistema permite que nossos usuários cadastrem requisições HTTP agendadas (via expressões cron) que devem ser executadas com alta precisão, tolerância a falhas e total rastreabilidade.
+A interface web (frontend) e os serviços de processamento (backend) estão organizados em repositórios separados no GitHub:
+- **Repositório do Backend (Este Repo)**: [github.com/JanGustavo/Cron](https://github.com/JanGustavo/Cron)
+- **Repositório do Frontend**: [github.com/JanGustavo/Cron-interface](https://github.com/JanGustavo/Cron-interface)
+
+---
+
+## 📝 Sobre o CronFlow
+O **CronFlow** é uma plataforma SaaS (Software as a Service) de agendamento de tarefas e disparo de webhooks ("CronTab em escala como serviço"). O sistema permite que nossos usuários cadastrem requisições HTTP agendadas (via expressões cron) que devem ser executadas com alta precisão, tolerância a falhas e total rastreabilidade.
 
 ---
 
 ## 🗺️ Visão Geral da Arquitetura (Múltiplos Binários)
 
-Em vez de construirmos um monólito gigante e pesado, o CronFlow foi projetado seguindo o **Princípio da Responsabilidade Única (SRP)** no nível de infraestrutura. O sistema é dividido em **3 processos totalmente independentes** (binários distintos) que rodam lado a lado, comunicando-se através de duas fontes: o banco de dados **PostgreSQL** e o broker de mensagens **Redis**.
+Em vez de construirmos um monólito gigante e pesado, o CronFlow foi projetado seguindo o **Princípio da Responsabilidade Única (SRP)** no nível de infraestrutura. O sistema é dividido em **3 processos totalmente independentes** (binários distintos em Go) que rodam lado a lado no backend, comunicando-se através de duas fontes: o banco de dados **PostgreSQL** e o broker de mensagens **Redis**. Uma interface **React** consome a API REST principal.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                      CLIENTE (HTTPS)                        │
-└──────────────────────────┬──────────────────────────────────┘
-                           │ REST API
-┌──────────────────────────▼──────────────────────────────────┐
-│            PROCESSO 1: API REST (cmd/api)                   │
-│         chi Router · Handlers · Services                    │
-│         Autenticação via SHA-256 (API Keys)                 │
-└────────────┬──────────────────────────┬────────────────────┘
-             │ Leitura/Escrita          │ Fonte da Verdade
-┌────────────▼──────────────┐  ┌───────▼────────────────────┐
-│   PROCESSO 2: SCHEDULER   │  │     PostgreSQL 16          │
-│   (cmd/scheduler)         │  │   Tabelas de Usuários,     │
-│   Loop 30s · Lock Redis   │  │   Projetos, Jobs e Logs    │
-│   Enfileira → Redis       │  └────────────────────────────┘
-└────────────┬──────────────┘
-             │ Enqueue
-┌────────────▼──────────────────────────────────────────────┐
-│              Redis 7 · Fila de Tarefas (Asynq)             │
-│        Filas prioritárias e agendamentos temporários       │
-└────────────┬──────────────────────────────────────────────┘
-             │ Consume (até 50 goroutines simultâneas)
-┌────────────▼──────────────────────────────────────────────┐
-│            PROCESSO 3: WORKER (cmd/worker)                  │
-│    Executa Requisição HTTP → Salva Log → Retry (3x)        │
-│    Backoff Exponencial: 1min → 5min → 15min                │
-│    Se falhar 3x → DLQ → Dispara Alerta via Webhook         │
-└────────────────────────────────────────────────────────────┘
+                  ┌─────────────────────────────────────────────────────────────┐
+                  │                      CLIENTE (Nginx)                        │
+                  └──────────────┬───────────────────────────────┬──────────────┘
+                                 │ HTTPS (Web App)               │ REST API
+                                 ▼                               ▼
+                  ┌──────────────────────────────┐ ┌────────────────────────────┐
+                  │   FRONTEND: Cron-interface   │ │   PROCESSO 1: API REST     │
+                  │      (React + Vite)          │ │     (cronflow/cmd/api)     │
+                  │      TailwindCSS v4          │ │    Autenticação SHA-256    │
+                  └──────────────────────────────┘ └──────┬──────────────┬──────┘
+                                                          │              │
+                                          Fonte da Verdade│              │ Enfileira Job
+                                                          ▼              ▼
+                                                ┌────────────┐ ┌────────────────┐
+                                                │ PostgreSQL │ │ Redis & Asynq  │
+                                                │     16     │ │ Fila de Jobs   │
+                                                └─────▲──────┘ └──────▲─────────┘
+                                                      │               │
+                                         Leitura      │               │ Consome Job
+                                      ┌───────────────┴──┐            │ (Goroutines)
+                                      │    PROCESSO 2:   │     ┌──────▼─────────┐
+                                      │     SCHEDULER    ├────►│   PROCESSO 3:  │
+                                      │(cmd/scheduler)   │     │     WORKER     │
+                                      │Loop 30s · Lock   │     │  (cmd/worker)  │
+                                      └──────────────────┘     └────────────────┘
 ```
 
-### Por que separamos em 3 processos?
+### Por que separamos em 3 processos no backend?
 1. **API (`cmd/api`)**: Precisa de alta escalabilidade e baixa latência. Pode ser multiplicada em várias réplicas conforme a quantidade de requisições de clientes crescer.
 2. **Scheduler (`cmd/scheduler`)**: É o coração do agendamento. Para evitar execuções duplicadas, **só pode haver exatamente 1 instância ativa** rodando (usamos locks distribuídos no Redis para garantir isso).
 3. **Worker (`cmd/worker`)**: É totalmente *stateless* (não guarda estado). Ele pode ser escalado horizontalmente de forma agressiva para aguentar rajadas massivas de execuções HTTP sem afetar a performance da API.
@@ -51,14 +55,14 @@ Em vez de construirmos um monólito gigante e pesado, o CronFlow foi projetado s
 
 ## 🗂️ Glossário de Domínio (As Entidades)
 
-Antes de abrir o código, você precisa entender os termos do nosso domínio de negócios. Eles estão mapeados em `internal/domain/`:
+Estas são as principais entidades de negócio do CronFlow mapeadas em `internal/domain/`:
 
-*   **User (Usuário)**: A conta principal do cliente cadastrado. Controla qual **plano** de assinatura (ex: `free` ou `paid`) está ativo. Não usamos senhas; a autenticação no sistema é feita exclusivamente via **API Key**.
+*   **User (Usuário)**: A conta principal do cliente cadastrado. Controla qual **plano** de assinatura (ex: `free` ou `paid`) está ativo. Não usamos senhas; a autenticação na API é feita exclusivamente via **API Key**.
 *   **Project (Projeto/Workspace)**: O ambiente (tenant) isolado de trabalho de um usuário. Um usuário pode criar múltiplos projetos para separar seus ambientes (ex: `produção`, `homologação`).
 *   **Job (Tarefa Agendada)**: A definição do agendamento que deve rodar. Contém:
     *   **Schedule**: Expressão cron (ex: `*/5 * * * *`) ou intervalos curtos (ex: `every:30m`).
     *   **HTTP Specs**: URL de destino, método HTTP (GET, POST, etc.), cabeçalhos (`Headers`) e corpo da requisição (`Payload`).
-    *   **Status**: Estado atual da tarefa (`active` ou `paused`).
+    *   **Status**: Estado atual da tarefa (`active`, `paused` ou `failing`).
     *   **NextRunAt**: Timestamp exato (em UTC!) calculado para a próxima execução da tarefa.
 *   **Execution (Histórico/Log de Execução)**: Registro de uma tentativa de execução de requisição HTTP pelo Worker. **É imutável após ser criada**. Contém a duração em milissegundos (`DurationMs`), o código de status HTTP retornado (`HTTPStatus`), o corpo da resposta (`ResponseBody` limitado a 2KB para evitar sobrecarga no banco de dados) e o número da tentativa de execução (`AttemptNumber`).
 
@@ -94,8 +98,6 @@ graph TD
 > Implementamos um coletor de lixo periódico direto no loop do Scheduler. Como a tabela `executions` cresce de forma agressiva (milhões de registros por dia), mantemos um contador de ciclos (`cleanupTick`).
 > A cada **2880 ciclos** (aproximadamente 24 horas considerando ticks de 30s), o Scheduler executa o método `DeleteOlderThan(ctx, 7)`, removendo automaticamente todos os logs de execução mais antigos que **7 dias** para usuários do plano grátis. Isso mantém o PostgreSQL leve e performático!
 
----
-
 ### 2. Fluxo do Worker (Consumo e Execução)
 O processo **Worker** monitora a fila do Redis de forma contínua através da biblioteca Asynq.
 
@@ -126,9 +128,29 @@ Fila Redis (Job ID)
 
 ---
 
-## 📂 Mapa do Código (Onde colocar cada arquivo?)
+## 💻 Frontend (Interface do Usuário)
 
-Para você não se perder na estrutura de diretórios, aqui está um mapa das pastas e suas regras de convivência:
+O frontend (`Cron-interface`) foi desenvolvido em React para fornecer uma experiência rica e reativa:
+
+*   **Dashboard Executivo**:
+    *   Gráficos dinâmicos com **Recharts** que exibem o volume de requisições disparadas e a taxa de sucesso.
+    *   Filtros rápidos de período (`1h`, `24h`, `3d`, `7d`, `30d`) e seleção por jobs específicos.
+    *   Painel de estatísticas rápidas com contagem total de jobs ativos, pausados e em falha.
+    *   Feed de atividades recentes com as últimas execuções de requisições.
+*   **Quadro Kanban Interativo**:
+    *   Visualização clara do status de cada job (Ativo, Pausado, Falhando).
+    *   Fluxo de arrastar e soltar (Drag and Drop) integrado para pausar ou reativar tarefas instantaneamente.
+    *   Modais detalhados para visualização de parâmetros e criação de novos Jobs (com suporte a customização de payload JSON, headers HTTP e timezone).
+*   **Histórico de Logs Completo**:
+    *   Visualização de tabelas e códigos de status retornados, tempo de resposta e corpo de retorno de até 2KB de cada disparo.
+*   **Gerenciamento de API Key e Webhooks**:
+    *   Na página de perfil, o usuário pode copiar a sua API Key secreta e configurar uma URL de webhook de alerta global para receber notificações imediatas de erros do Worker.
+
+---
+
+## 📂 Mapa do Código do Backend
+
+Para você não se perder na estrutura de diretórios do backend (`cronflow/`):
 
 ```
 cronflow/
@@ -169,15 +191,15 @@ cronflow/
 
 ## 🛡️ Mecanismos de Defesa e Segurança
 
-Como lidamos com dados sensíveis e exposição direta à internet, implementamos dois mecanismos vitais de segurança que você precisa conhecer:
+Como lidamos com dados sensíveis e exposição direta à internet, implementamos dois mecanismos vitais de segurança:
 
 ### 1. Autenticação Timing-Safe com Hashing SHA-256
 Os usuários acessam nossa API REST enviando uma **API Key** no cabeçalho `X-API-Key`.
 *   **Armazenamento Seguro**: Nós **nunca** gravamos a API Key do usuário em texto plano no banco de dados. Salvamos apenas um hash gerado pelo algoritmo **SHA-256**.
-*   **Prevenção de Timing Attacks**: Ao buscar e validar a chave recebida, utilizamos a função `subtle.ConstantTimeCompare()` em Go. Isso garante que o tempo de execução da comparação seja idêntico, independentemente de a chave fornecida estar quase correta ou completamente errada, impossibilitando hackers de deduzirem chaves analisando o tempo de resposta do servidor.
+*   **Prevenção de Timing Attacks**: Ao buscar e validar a chave recebida, utilizamos a função `subtle.ConstantTimeCompare()` em Go. Isso garante que o tempo de execução da comparação seja idêntico, independentemente de a chave fornecida estar quase correta ou completamente errada.
 
 ### 2. Rate Limiting via Algoritmo Janela Deslizante
-Para proteger nosso banco de dados e servidores contra abusos de requisições maliciosas ou loops infinitos de clientes, aplicamos um middleware de limite de taxa utilizando o Redis.
+Para proteger nosso banco de dados e servidores contra abusos de requisições ou loops infinitos de clientes, aplicamos um middleware de limite de taxa utilizando o Redis.
 *   **Limite**: Atualmente fixado em **60 requisições por minuto** por API Key.
 *   **Funcionamento**: Cada requisição armazena um registro de timestamp em um conjunto ordenado (*Sorted Set*) no Redis. Limpezas rápidas removem timestamps antigos, e consultas contam quantos acessos ocorreram nos últimos 60 segundos. Se passar de 60, o usuário recebe um HTTP `429 Too Many Requests`.
 
@@ -188,62 +210,72 @@ Para proteger nosso banco de dados e servidores contra abusos de requisições m
 ### 1. Pré-requisitos
 Certifique-se de ter instalado em sua máquina:
 *   [Go 1.22 ou superior](https://go.dev/dl/)
+*   [Node.js 18 ou superior](https://nodejs.org/)
 *   [Docker e Docker Compose](https://docs.docker.com/get-docker/)
 
-### 2. Configurando o Ambiente
-Copie o template de variáveis de ambiente para criar o arquivo `.env`:
-```bash
-cp .env.example .env
-```
+### 2. Iniciando a Infraestrutura e o Backend
+1. Entre na pasta do backend e crie o arquivo `.env`:
+   ```bash
+   cd cronflow
+   cp .env.example .env
+   ```
+2. Suba os contêineres do PostgreSQL e do Redis em segundo plano:
+   ```bash
+   docker compose up -d postgres redis
+   ```
+3. Aplique as migrations de tabelas do banco de dados:
+   ```bash
+   make migrate/up
+   ```
+4. Adicione o banco de dados inicial (Seed) para criar o usuário e a API Key padrão de testes:
+   ```bash
+   psql "postgres://postgres:postgres@localhost:5432/cronflow?sslmode=disable" -f scripts/seed.sql
+   ```
+5. Abra 3 terminais separados e execute os microsserviços do backend:
+   *   **Terminal 1 (A API HTTP)**:
+       ```bash
+       make dev/api
+       ```
+   *   **Terminal 2 (O Scheduler & Garbage Collector)**:
+       ```bash
+       make dev/scheduler
+       ```
+   *   **Terminal 3 (O Worker Pool)**:
+       ```bash
+       make dev/worker
+       ```
 
-### 3. Subindo a Infraestrutura
-Suba os contêineres do PostgreSQL e do Redis em segundo plano:
-```bash
-docker compose up -d postgres redis
-```
-
-### 4. Executando as Migrations
-Aplique a modelagem do banco de dados (tabelas e índices) rodando:
-```bash
-make migrate/up
-```
-
-### 5. Populando o Banco de Dados (Seed)
-Para facilitar seus testes locais, aplique o script de seed para criar um usuário de testes e gerar chaves de API:
-```bash
-psql "postgres://postgres:postgres@localhost:5432/cronflow?sslmode=disable" -f scripts/seed.sql
-```
-*(Dica: Você também pode usar o helper `./scripts/gen_apikey.sh` para criar chaves de teste adicionais).*
-
-### 6. Iniciando os Processos
-Abra 3 terminais separados e execute cada um dos binários do MVP em modo de desenvolvimento:
-
-*   **Terminal 1 (A API HTTP)**:
-    ```bash
-    make dev/api
-    ```
-*   **Terminal 2 (O Scheduler & Garbage Collector)**:
-    ```bash
-    make dev/scheduler
-    ```
-*   **Terminal 3 (O Worker Pool)**:
-    ```bash
-    make dev/worker
-    ```
+### 3. Iniciando a Interface do Usuário (Frontend)
+1. Acesse o diretório do frontend:
+   ```bash
+   cd "../cron front"
+   ```
+2. Instale as dependências:
+   ```bash
+   npm install
+   ```
+3. Configure a URL da API local criando um arquivo `.env.local`:
+   ```env
+   VITE_API_URL=http://localhost:8080
+   ```
+4. Execute o servidor de desenvolvimento:
+   ```bash
+   npm run dev
+   ```
+   *O painel estará acessível em [http://localhost:5173/](http://localhost:5173/)*
 
 ---
 
 ## 🧪 Exemplos Práticos de Testes (Via Curl)
 
-Aqui estão alguns comandos prontos para você testar a API localmente a partir de sua API Key gerada no passo anterior.
+Substitua `SUA_API_KEY_DE_TESTES_GERADA` pela chave criada no passo do script de seed.
 
-### Verificar a Saúde do Sistema (Health Check)
-Endpoint público para verificar se o banco de dados e o Redis estão online:
+### Verificar a Saúde do Backend (Health Check)
 ```bash
 curl -i http://localhost:8080/health
 ```
 
-### Criar uma Nova Tarefa Agendada (Job)
+### Criar um Novo Job Agendado
 Cria um Job que realiza uma chamada POST a cada minuto para um endpoint específico:
 ```bash
 curl -i -X POST http://localhost:8080/v1/jobs \
@@ -282,9 +314,8 @@ curl -i http://localhost:8080/v1/executions?job_id=ID_DO_JOB_CRIADO \
 
 ## 🏆 Diretrizes de Desenvolvimento e Boas Práticas
 
-1.  **Não coloque lógica de negócios em Handlers**: Handlers devem apenas ler parâmetros HTTP, validar o JSON de entrada com nosso validador estruturado, acionar o `Service` correto e retornar a resposta formatada. Se o seu handler tiver ifs complexos ou queries ao banco, reescreva-o enviando essa lógica para o `Service`.
-2.  **Use SQL Puro e compile com SQLC**: Nós não utilizamos ORMs pesados como GORM neste projeto. Escrevemos queries SQL puras organizadas em arquivos na pasta `migrations/queries/`. Após alterar ou criar uma query, execute `make sqlc/gen` para gerar o código Go fortemente tipado automaticamente. Isso garante performance máxima e segurança em tempo de compilação!
-3.  **Tudo em UTC**: O banco de dados e os cálculos do parser de cron rodam exclusivamente em UTC. Nunca use funções do sistema que peguem o fuso horário local (`time.Now()`) diretamente para salvar no banco. Sempre faça conversões usando `.UTC()`.
+1.  **Não coloque lógica de negócios em Handlers**: Handlers devem apenas ler parâmetros HTTP, validar o JSON de entrada, acionar o `Service` correto e retornar a resposta formatada.
+2.  **Use SQL Puro e compile com SQLC**: Escrevemos queries SQL puras organizadas em arquivos na pasta `migrations/queries/`. Após alterar ou criar uma query, execute `make sqlc/gen` para gerar o código Go tipado.
+3.  **Tudo em UTC**: O banco de dados e os cálculos de cron rodam em UTC. Nunca use funções do sistema que peguem o fuso horário local (`time.Now()`) diretamente para salvar no banco. Sempre faça conversões usando `.UTC()`.
 4.  **Atenção aos retornos do Scheduler**: No Scheduler, todos os tratamentos de erros ou situações sem jobs elegíveis passam por um fluxo que obrigatoriamente executa o nosso log de limpeza no final do método `tick()`. Nunca insira `return` precoces que pulem a instrução final de contagem e verificação de ticks.
-
-Pronto! Agora você tem em mãos todo o conhecimento necessário para começar a codificar no CronFlow. Se tiver dúvidas, consulte os testes unitários ou converse com seu engenheiro parceiro. Bons códigos! 🚀
+5.  **Mantenha as Convenções de Nomes**: O frontend faz chamadas convertendo objetos JSON em `camelCase`. Certifique-se de que novos atributos no backend estejam devidamente mapeados nos conversores do Axios (`cron front/src/services/api.ts`) se adicionadas siglas não usuais.

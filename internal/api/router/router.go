@@ -30,6 +30,7 @@ func New(
 
 	// Rotas publicas — sem autenticacao
 	r.Get("/health", healthHandler.Check)
+	r.Get("/v1/health", healthHandler.Check)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Post("/v1/auth/signup", authHandler.Signup)
 	r.Post("/v1/auth/login", authHandler.Login)
