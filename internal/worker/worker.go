@@ -129,7 +129,7 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 			if httpStatus != nil {
 				statusCode = *httpStatus
 			}
-			w.alertService.Notify(*updatedJob.WebhookAlertURL, j.ID,
+			w.alertService.Notify(*updatedJob.WebhookAlertURL, j.ID, j.Name,
 				updatedJob.ConsecutiveFailures, statusCode, responseBody)
 		}
 

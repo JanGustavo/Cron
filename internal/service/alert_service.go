@@ -17,6 +17,7 @@ func NewAlertService() *AlertService {
 
 type alertPayload struct {
 	JobID       string `json:"job_id"`
+	JobName     string `json:"job_name"`
 	Event       string `json:"event"`
 	Failures    int    `json:"consecutive_failures"`
 	LastStatus  int    `json:"last_http_status"`
@@ -26,10 +27,11 @@ type alertPayload struct {
 
 // Notify dispara o webhook de alerta de forma assíncrona.
 // Não bloqueia o Worker — roda em goroutine separada.
-func (s *AlertService) Notify(webhookURL, jobID string, failures, lastStatus int, lastBody string) {
+func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastStatus int, lastBody string) {
 	go func() {
 		payload := alertPayload{
 			JobID:       jobID,
+			JobName:     jobName,
 			Event:       "job.failing",
 			Failures:    failures,
 			LastStatus:  lastStatus,

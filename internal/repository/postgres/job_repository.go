@@ -55,14 +55,15 @@ func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error
 func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, error) {
 	query := `
 		SELECT id, project_id, name, schedule, timezone, url, http_method,
-		       status, next_run_at, last_run_at, consecutive_failures,
+		       headers, payload, status, next_run_at, last_run_at, consecutive_failures,
 		       webhook_alert_url, created_at, updated_at
 		FROM jobs WHERE id = $1`
 
 	j := &job.Job{}
+	var headers, payload []byte
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&j.ID, &j.ProjectID, &j.Name, &j.Schedule, &j.Timezone,
-		&j.URL, &j.HTTPMethod, &j.Status, &j.NextRunAt, &j.LastRunAt,
+		&j.URL, &j.HTTPMethod, &headers, &payload, &j.Status, &j.NextRunAt, &j.LastRunAt,
 		&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.CreatedAt, &j.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
@@ -72,6 +73,9 @@ func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, erro
 		return nil, fmt.Errorf("JobRepository.FindByID: %w", err)
 	}
 
+	json.Unmarshal(headers, &j.Headers)
+	json.Unmarshal(payload, &j.Payload)
+
 	return j, nil
 }
 
@@ -79,7 +83,7 @@ func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, erro
 func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]*job.Job, error) {
 	query := `
 		SELECT id, project_id, name, schedule, timezone, url, http_method,
-		       status, next_run_at, last_run_at, consecutive_failures,
+		       headers, payload, status, next_run_at, last_run_at, consecutive_failures,
 		       webhook_alert_url, created_at, updated_at
 		FROM jobs WHERE project_id = $1
 		ORDER BY created_at DESC`
@@ -93,14 +97,17 @@ func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]
 	var jobs []*job.Job
 	for rows.Next() {
 		j := &job.Job{}
+		var headers, payload []byte
 		err := rows.Scan(
 			&j.ID, &j.ProjectID, &j.Name, &j.Schedule, &j.Timezone,
-			&j.URL, &j.HTTPMethod, &j.Status, &j.NextRunAt, &j.LastRunAt,
+			&j.URL, &j.HTTPMethod, &headers, &payload, &j.Status, &j.NextRunAt, &j.LastRunAt,
 			&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.CreatedAt, &j.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("JobRepository.ListByProject scan: %w", err)
 		}
+		json.Unmarshal(headers, &j.Headers)
+		json.Unmarshal(payload, &j.Payload)
 		jobs = append(jobs, j)
 	}
 
