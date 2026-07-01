@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -29,27 +31,52 @@ type alertPayload struct {
 // Não bloqueia o Worker — roda em goroutine separada.
 func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastStatus int, lastBody string) {
 	go func() {
-		payload := alertPayload{
-			JobID:       jobID,
-			JobName:     jobName,
-			Event:       "job.failing",
-			Failures:    failures,
-			LastStatus:  lastStatus,
-			LastError:   lastBody,
-			TriggeredAt: time.Now().UTC().Format(time.RFC3339),
-		}
-
-		data, err := json.Marshal(payload)
-		if err != nil {
-			log.Printf("AlertService.Notify: erro ao serializar payload: %v", err)
-			return
-		}
-
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		req, _ := http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
-		req.Header.Set("Content-Type", "application/json")
+		var req *http.Request
+		var err error
+
+		// Se a URL do webhook for do ntfy (ex: ntfy.sh ou contiver ntfy)
+		if strings.Contains(webhookURL, "ntfy") {
+			message := fmt.Sprintf(
+				"Job '%s' falhou %d vezes consecutivas.\nÚltimo Status HTTP: %d\nErro: %s",
+				jobName, failures, lastStatus, lastBody,
+			)
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, strings.NewReader(message))
+			if err == nil {
+				req.Header.Set("Content-Type", "text/plain")
+				req.Header.Set("Title", fmt.Sprintf("CronFlow Alerta: %s", jobName))
+				req.Header.Set("Priority", "4") // High priority
+				req.Header.Set("Tags", "rotating_light,warning")
+			}
+		} else {
+			// Webhook genérico (JSON)
+			payload := alertPayload{
+				JobID:       jobID,
+				JobName:     jobName,
+				Event:       "job.failing",
+				Failures:    failures,
+				LastStatus:  lastStatus,
+				LastError:   lastBody,
+				TriggeredAt: time.Now().UTC().Format(time.RFC3339),
+			}
+
+			data, errMarshal := json.Marshal(payload)
+			if errMarshal != nil {
+				log.Printf("AlertService.Notify: erro ao serializar payload: %v", errMarshal)
+				return
+			}
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+		}
+
+		if err != nil {
+			log.Printf("AlertService.Notify: erro ao criar request: %v", err)
+			return
+		}
 		req.Header.Set("User-Agent", "CronFlow-Alerter/1.0")
 
 		resp, err := http.DefaultClient.Do(req)

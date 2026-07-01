@@ -144,7 +144,7 @@ func (s *JobService) UpdateStatus(ctx context.Context, id, projectID string, sta
 	}
 
 	// Ao reativar: recalcula next_run_at a partir de agora
-	if status == job.StatusActive && j.Status == job.StatusPaused {
+	if status == job.StatusActive && (j.Status == job.StatusPaused || j.Status == job.StatusFailing) {
 		nextRun, err := cronparser.NextRun(j.Schedule, j.Timezone, time.Now())
 		if err != nil {
 			return fmt.Errorf("JobService.UpdateStatus: %w", err)

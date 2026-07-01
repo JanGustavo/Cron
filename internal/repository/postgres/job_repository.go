@@ -160,10 +160,18 @@ func (r *JobRepository) UpdateNextRun(ctx context.Context, id string, nextRun ti
 
 // UpdateStatus altera o status (active, paused, failing).
 func (r *JobRepository) UpdateStatus(ctx context.Context, id string, status job.Status) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2`,
-		status, id,
-	)
+	var err error
+	if status == job.StatusActive {
+		_, err = r.db.ExecContext(ctx,
+			`UPDATE jobs SET status = $1, consecutive_failures = 0, updated_at = NOW() WHERE id = $2`,
+			status, id,
+		)
+	} else {
+		_, err = r.db.ExecContext(ctx,
+			`UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2`,
+			status, id,
+		)
+	}
 	return err
 }
 
