@@ -32,6 +32,11 @@ func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error
 			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at, updated_at`
 
+	tags := j.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
 	err := r.db.QueryRowContext(ctx, query,
 		j.ProjectID,
 		j.Name,
@@ -44,7 +49,7 @@ func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error
 		j.NextRunAt,
 		j.WebhookAlertURL,
 		j.NextJobID,
-		pq.Array(j.Tags),
+		pq.Array(tags),
 	).Scan(&j.ID, &j.CreatedAt, &j.UpdatedAt)
 
 	if err != nil {
@@ -253,6 +258,11 @@ func (r *JobRepository) Update(ctx context.Context, j *job.Job) error {
 			updated_at = NOW()
 		WHERE id = $12`
 
+	tags := j.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
 	_, err := r.db.ExecContext(ctx, query,
 		j.Name,
 		j.Schedule,
@@ -264,7 +274,7 @@ func (r *JobRepository) Update(ctx context.Context, j *job.Job) error {
 		j.WebhookAlertURL,
 		j.NextRunAt,
 		j.NextJobID,
-		pq.Array(j.Tags),
+		pq.Array(tags),
 		j.ID,
 	)
 	if err != nil {

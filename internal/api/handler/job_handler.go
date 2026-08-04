@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
@@ -80,6 +81,7 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Tags:            input.Tags,
 	})
 	if err != nil {
+		log.Printf("ERROR JobHandler.Create: %v", err)
 		switch {
 		case errors.Is(err, service.ErrInvalidSchedule):
 			writeError(w, http.StatusBadRequest, err.Error())
