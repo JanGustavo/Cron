@@ -31,8 +31,11 @@ func main() {
 	executionRepo := postgres.NewExecutionRepository(db)
 	alertService := service.NewAlertService()
 
+	enqueuer := queue.NewEnqueuer(cfg.RedisURL)
+	defer enqueuer.Close()
+
 	// Worker handler
-	w := worker.New(jobRepo, executionRepo, alertService)
+	w := worker.New(jobRepo, executionRepo, alertService, enqueuer)
 
 	// Servidor Asynq — consome a fila Redis
 	srv := asynq.NewServer(

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/lib/pq"
+
 	"github.com/JanGustavo/Cron/internal/domain/job"
 )
 
@@ -25,9 +27,9 @@ func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error
 
 	query := `
 		INSERT INTO jobs 
-			(project_id, name, schedule, timezone, url, http_method, headers, payload, next_run_at, webhook_alert_url)
+			(project_id, name, schedule, timezone, url, http_method, headers, payload, next_run_at, webhook_alert_url, next_job_id, tags)
 		VALUES 
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		RETURNING id, created_at, updated_at`
 
 	err := r.db.QueryRowContext(ctx, query,
@@ -41,6 +43,8 @@ func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error
 		payload,
 		j.NextRunAt,
 		j.WebhookAlertURL,
+		j.NextJobID,
+		pq.Array(j.Tags),
 	).Scan(&j.ID, &j.CreatedAt, &j.UpdatedAt)
 
 	if err != nil {
@@ -56,15 +60,16 @@ func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, erro
 	query := `
 		SELECT id, project_id, name, schedule, timezone, url, http_method,
 		       headers, payload, status, next_run_at, last_run_at, consecutive_failures,
-		       webhook_alert_url, created_at, updated_at
+		       webhook_alert_url, next_job_id, tags, created_at, updated_at
 		FROM jobs WHERE id = $1`
 
 	j := &job.Job{}
 	var headers, payload []byte
+	var tags pq.StringArray
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&j.ID, &j.ProjectID, &j.Name, &j.Schedule, &j.Timezone,
 		&j.URL, &j.HTTPMethod, &headers, &payload, &j.Status, &j.NextRunAt, &j.LastRunAt,
-		&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.CreatedAt, &j.UpdatedAt,
+		&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.NextJobID, &tags, &j.CreatedAt, &j.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -75,6 +80,7 @@ func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, erro
 
 	json.Unmarshal(headers, &j.Headers)
 	json.Unmarshal(payload, &j.Payload)
+	j.Tags = []string(tags)
 
 	return j, nil
 }
@@ -84,7 +90,7 @@ func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]
 	query := `
 		SELECT id, project_id, name, schedule, timezone, url, http_method,
 		       headers, payload, status, next_run_at, last_run_at, consecutive_failures,
-		       webhook_alert_url, created_at, updated_at
+		       webhook_alert_url, next_job_id, tags, created_at, updated_at
 		FROM jobs WHERE project_id = $1
 		ORDER BY created_at DESC`
 
@@ -98,16 +104,18 @@ func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]
 	for rows.Next() {
 		j := &job.Job{}
 		var headers, payload []byte
+		var tags pq.StringArray
 		err := rows.Scan(
 			&j.ID, &j.ProjectID, &j.Name, &j.Schedule, &j.Timezone,
 			&j.URL, &j.HTTPMethod, &headers, &payload, &j.Status, &j.NextRunAt, &j.LastRunAt,
-			&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.CreatedAt, &j.UpdatedAt,
+			&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.NextJobID, &tags, &j.CreatedAt, &j.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("JobRepository.ListByProject scan: %w", err)
 		}
 		json.Unmarshal(headers, &j.Headers)
 		json.Unmarshal(payload, &j.Payload)
+		j.Tags = []string(tags)
 		jobs = append(jobs, j)
 	}
 
@@ -240,8 +248,10 @@ func (r *JobRepository) Update(ctx context.Context, j *job.Job) error {
 			payload = $7,
 			webhook_alert_url = $8,
 			next_run_at = $9,
+			next_job_id = $10,
+			tags = $11,
 			updated_at = NOW()
-		WHERE id = $10`
+		WHERE id = $12`
 
 	_, err := r.db.ExecContext(ctx, query,
 		j.Name,
@@ -253,6 +263,8 @@ func (r *JobRepository) Update(ctx context.Context, j *job.Job) error {
 		payload,
 		j.WebhookAlertURL,
 		j.NextRunAt,
+		j.NextJobID,
+		pq.Array(j.Tags),
 		j.ID,
 	)
 	if err != nil {

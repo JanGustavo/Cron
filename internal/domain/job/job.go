@@ -39,6 +39,8 @@ type Job struct {
 	LastRunAt           *time.Time        `json:"last_run_at,omitempty"` // se nunca rodou, é nil
 	ConsecutiveFailures int               `json:"consecutive_failures"`
 	WebhookAlertURL     *string           `json:"webhook_alert_url,omitempty"` // URL para callbacks de sucesso/falha
+	NextJobID           *string           `json:"next_job_id,omitempty"`
+	Tags                []string          `json:"tags,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
 }

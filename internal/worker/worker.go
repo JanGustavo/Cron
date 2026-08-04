@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/hibiken/asynq"
@@ -21,17 +22,20 @@ type Worker struct {
 	jobRepo       *postgres.JobRepository
 	executionRepo *postgres.ExecutionRepository
 	alertService  *service.AlertService
+	enqueuer      *queue.Enqueuer
 }
 
 func New(
 	jobRepo *postgres.JobRepository,
 	executionRepo *postgres.ExecutionRepository,
 	alertService *service.AlertService,
+	enqueuer *queue.Enqueuer,
 ) *Worker {
 	return &Worker{
 		jobRepo:       jobRepo,
 		executionRepo: executionRepo,
 		alertService:  alertService,
+		enqueuer:      enqueuer,
 	}
 }
 
@@ -69,6 +73,19 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 	// Número da tentativa atual (Asynq disponibiliza via GetRetryCount)
 	retryInfo, _ := asynq.GetRetryCount(ctx)
 	attemptNumber := retryInfo + 1
+
+	// Substitui variáveis dinâmicas (placeholders) no URL, headers e payload
+	j.URL = replacePlaceholders(j.URL, j, attemptNumber)
+	if j.Headers != nil {
+		updatedHeaders := make(map[string]string)
+		for k, v := range j.Headers {
+			updatedHeaders[k] = replacePlaceholders(v, j, attemptNumber)
+		}
+		j.Headers = updatedHeaders
+	}
+	if j.Payload != nil {
+		j.Payload = replacePayloadPlaceholders(j.Payload, j, attemptNumber)
+	}
 
 	log.Printf("worker: executando job %s — tentativa %d — %s %s",
 		j.ID, attemptNumber, j.HTTPMethod, j.URL)
@@ -148,5 +165,39 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 		log.Printf("worker: erro ao resetar falhas do job %s: %v", j.ID, err)
 	}
 
+	// Encadeamento de Jobs (Workflow/Pipeline): se houver NextJobID configurado, enfileira-o
+	if j.NextJobID != nil && *j.NextJobID != "" {
+		log.Printf("worker: job %s concluído com sucesso — enfileirando próximo job %s", j.ID, *j.NextJobID)
+		if err := w.enqueuer.Enqueue(ctx, *j.NextJobID); err != nil {
+			log.Printf("worker: erro ao enfileirar próximo job %s: %v", *j.NextJobID, err)
+		}
+	}
+
 	return nil
+}
+
+func replacePlaceholders(val string, j *job.Job, attempt int) string {
+	nowStr := fmt.Sprintf("%d", time.Now().Unix())
+	val = strings.ReplaceAll(val, "{{cronflow.timestamp}}", nowStr)
+	val = strings.ReplaceAll(val, "{{cronflow.job_id}}", j.ID)
+	val = strings.ReplaceAll(val, "{{cronflow.run_id}}", fmt.Sprintf("%s-%d", j.ID, attempt))
+	return val
+}
+
+func replacePayloadPlaceholders(payload map[string]any, j *job.Job, attempt int) map[string]any {
+	if payload == nil {
+		return nil
+	}
+	res := make(map[string]any)
+	for k, v := range payload {
+		switch val := v.(type) {
+		case string:
+			res[k] = replacePlaceholders(val, j, attempt)
+		case map[string]any:
+			res[k] = replacePayloadPlaceholders(val, j, attempt)
+		default:
+			res[k] = v
+		}
+	}
+	return res
 }

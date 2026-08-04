@@ -50,6 +50,30 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 				req.Header.Set("Priority", "4") // High priority
 				req.Header.Set("Tags", "rotating_light,warning")
 			}
+		} else if strings.Contains(webhookURL, "discord.com/api/webhooks") || strings.Contains(webhookURL, "discordapp.com/api/webhooks") {
+			discordBody := map[string]any{
+				"content": fmt.Sprintf(
+					"🚨 **CronFlow Alerta**\n**Job:** %s (%s)\n**Falhas Consecutivas:** %d\n**Último Status:** %d\n**Erro:** `%s`",
+					jobName, jobID, failures, lastStatus, lastBody,
+				),
+			}
+			data, _ := json.Marshal(discordBody)
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+		} else if strings.Contains(webhookURL, "hooks.slack.com") {
+			slackBody := map[string]any{
+				"text": fmt.Sprintf(
+					"🚨 *CronFlow Alerta*\n*Job:* %s (%s)\n*Falhas Consecutivas:* %d\n*Último Status:* %d\n*Erro:* `%s`",
+					jobName, jobID, failures, lastStatus, lastBody,
+				),
+			}
+			data, _ := json.Marshal(slackBody)
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
 		} else {
 			// Webhook genérico (JSON)
 			payload := alertPayload{

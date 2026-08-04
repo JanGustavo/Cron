@@ -53,6 +53,8 @@ type CreateJobInput struct {
 	Headers         map[string]string
 	Payload         map[string]any
 	WebhookAlertURL *string
+	NextJobID       *string
+	Tags            []string
 }
 
 // Create valida, aplica regras de negocio e persiste um novo job.
@@ -102,6 +104,8 @@ func (s *JobService) Create(ctx context.Context, input CreateJobInput) (*job.Job
 		Status:          job.StatusActive,
 		NextRunAt:       nextRun,
 		WebhookAlertURL: input.WebhookAlertURL,
+		NextJobID:       input.NextJobID,
+		Tags:            input.Tags,
 	}
 
 	created, err := s.jobRepo.Create(ctx, j)
@@ -190,6 +194,8 @@ type UpdateJobInput struct {
 	Headers         map[string]string
 	Payload         map[string]any
 	WebhookAlertURL *string
+	NextJobID       *string
+	Tags            []string
 }
 
 // Update atualiza as configurações de um job no banco, validando permissões e recalculando o next_run_at.
@@ -216,6 +222,8 @@ func (s *JobService) Update(ctx context.Context, input UpdateJobInput) (*job.Job
 	j.Headers = input.Headers
 	j.Payload = input.Payload
 	j.WebhookAlertURL = input.WebhookAlertURL
+	j.NextJobID = input.NextJobID
+	j.Tags = input.Tags
 
 	if err := s.jobRepo.Update(ctx, j); err != nil {
 		return nil, fmt.Errorf("JobService.Update: %w", err)

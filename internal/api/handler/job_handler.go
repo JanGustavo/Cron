@@ -46,6 +46,8 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Headers         map[string]string `json:"headers"`
 		Payload         map[string]any    `json:"payload"`
 		WebhookAlertURL *string           `json:"webhook_alert_url"`
+		NextJobID       *string           `json:"next_job_id"`
+		Tags            []string          `json:"tags"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -74,6 +76,8 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 		Headers:         input.Headers,
 		Payload:         input.Payload,
 		WebhookAlertURL: input.WebhookAlertURL,
+		NextJobID:       input.NextJobID,
+		Tags:            input.Tags,
 	})
 	if err != nil {
 		switch {
@@ -282,6 +286,8 @@ func (h *JobHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Headers         map[string]string `json:"headers"`
 		Payload         map[string]any    `json:"payload"`
 		WebhookAlertURL *string           `json:"webhook_alert_url"`
+		NextJobID       *string           `json:"next_job_id"`
+		Tags            []string          `json:"tags"`
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
@@ -305,6 +311,8 @@ func (h *JobHandler) Update(w http.ResponseWriter, r *http.Request) {
 		Headers:         input.Headers,
 		Payload:         input.Payload,
 		WebhookAlertURL: input.WebhookAlertURL,
+		NextJobID:       input.NextJobID,
+		Tags:            input.Tags,
 	})
 	if err != nil {
 		switch {
