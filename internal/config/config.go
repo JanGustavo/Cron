@@ -21,6 +21,8 @@ type Config struct {
 	MaxJobsFreePlan int
 	MaxJobsPaidPlan int
 	JWTSecret       string
+	GeminiAPIKey    string
+	GroqAPIKey      string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -37,6 +39,8 @@ func Load() *Config {
 		MaxJobsFreePlan: getEnvAsInt("MAX_JOBS_FREE_PLAN", 3),
 		MaxJobsPaidPlan: getEnvAsInt("MAX_JOBS_PAID_PLAN", 20),
 		JWTSecret:       getEnv("JWT_SECRET", "cronflow_jwt_secret_fallback_key_2026_xyz"),
+		GeminiAPIKey:    getEnv("GEMINI_API_KEY", ""),
+		GroqAPIKey:      getEnv("GROQ_API_KEY", ""),
 	}
 }
 

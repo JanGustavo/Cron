@@ -17,6 +17,8 @@ func New(
 	healthHandler *handler.HealthHandler,
 	executionHandler *handler.ExecutionHandler,
 	authHandler *handler.AuthHandler,
+	agentHandler *handler.AgentHandler,
+	pixHandler *handler.PixHandler,
 	jwtSecret string,
 ) *chi.Mux {
 	r := chi.NewRouter()
@@ -39,8 +41,12 @@ func New(
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(userRepo, jwtSecret))
 
+		r.Post("/v1/agent/chat", agentHandler.Chat)
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
 		r.Get("/v1/executions", executionHandler.ListGlobal)
+
+		r.Get("/v1/pix/valores", pixHandler.ListValores)
+		r.Get("/v1/pix/qr", pixHandler.GenerateQR)
 
 		r.Route("/v1/jobs", func(r chi.Router) {
 			r.Get("/", jobHandler.List)
