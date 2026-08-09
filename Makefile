@@ -1,4 +1,4 @@
-.PHONY: dev dev/api dev/worker dev/scheduler dev/front migrate/up migrate/down sqlc/gen test lint build
+.PHONY: dev dev/api dev/worker dev/scheduler dev/front dev/backend migrate/up migrate/down sqlc/gen test lint build
 
 SHELL := /bin/bash
 
@@ -10,6 +10,15 @@ dev:
 	go run ./cmd/scheduler & \
 	go run ./cmd/worker & \
 	npm --prefix "../cron front" run dev & \
+	wait
+
+# Rodar apenas os 3 processos Go do backend juntos
+dev/backend:
+	@echo "⚡ Iniciando serviços do backend Go (API, Scheduler, Worker)..."
+	@trap 'echo -e "\n🛑 Desligando serviços graciosamente..."; kill 0' INT; \
+	go run ./cmd/api & \
+	go run ./cmd/scheduler & \
+	go run ./cmd/worker & \
 	wait
 
 # Rodar cada processo em dev
