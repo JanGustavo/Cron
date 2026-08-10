@@ -47,7 +47,7 @@ func main() {
 	jobService := service.NewJobService(jobRepo, userRepo, enqueuer, cfg)
 
 	// Handlers
-	healthHandler := handler.NewHealthHandler(db)
+	healthHandler := handler.NewHealthHandler(db, cfg.RedisURL)
 	jobHandler := handler.NewJobHandler(jobService)
 	executionHandler := handler.NewExecutionHandler(jobService, executionRepo)
 	authHandler := handler.NewAuthHandler(userRepo, cfg)
