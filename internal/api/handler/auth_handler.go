@@ -121,6 +121,17 @@ func isValidCPF(cpf string) bool {
 }
 
 // Signup — POST /v1/auth/signup
+// @Summary Registrar uma nova conta de desenvolvedor
+// @Description Cria uma conta de usuário com e-mail, senha, nome completo e CPF, inicializando um projeto padrão e uma chave de API segura.
+// @Tags Autenticação
+// @Accept json
+// @Produce json
+// @Param body body SignupRequest true "Dados de cadastro contendo e-mail, senha, nome completo, CPF e nome do projeto inicial"
+// @Success 201 {object} AuthResponse "Conta criada, projeto inicializado e chaves geradas"
+// @Failure 400 {object} map[string]string "E-mail, senha, nome do projeto, nome completo ou CPF ausentes, ou CPF matematicamente inválido"
+// @Failure 409 {object} map[string]string "E-mail ou CPF já cadastrados por outro usuário"
+// @Failure 500 {object} map[string]string "Erro interno de banco ou geração de chaves"
+// @Router /v1/auth/signup [post]
 func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	var req SignupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -235,6 +246,17 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 }
 
 // Login — POST /v1/auth/login
+// @Summary Realizar login
+// @Description Autentica um usuário usando e-mail e senha, retornando os tokens JWT e a lista de projetos associados.
+// @Tags Autenticação
+// @Accept json
+// @Produce json
+// @Param body body LoginRequest true "Credenciais de login"
+// @Success 200 {object} AuthResponse "Autenticado com sucesso"
+// @Failure 400 {object} map[string]string "E-mail ou senha ausentes"
+// @Failure 401 {object} map[string]string "Credenciais inválidas"
+// @Failure 500 {object} map[string]string "Erro interno de autenticação"
+// @Router /v1/auth/login [post]
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

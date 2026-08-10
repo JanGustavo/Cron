@@ -33,11 +33,29 @@ var ValoresSugeridos = []SugestaoValor{
 }
 
 // ListValores — GET /v1/pix/valores
+// @Summary Listar valores sugeridos para apoio PIX
+// @Description Retorna as opções rápidas e sugeridas de valores para fazer uma doação de apoio via PIX.
+// @Tags PIX Apoio
+// @Produce json
+// @Success 200 {array} SugestaoValor "Opções sugeridas de apoio"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Security ApiKeyAuth
+// @Router /v1/pix/valores [get]
 func (h *PixHandler) ListValores(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ValoresSugeridos)
 }
 
 // GenerateQR — GET /v1/pix/qr
+// @Summary Gerar QR Code PIX Dinâmico
+// @Description Retorna a string do QR Code no formato Data URI Base64 e o payload copia-e-cola correspondente para a chave Pix especificada e o valor solicitado.
+// @Tags PIX Apoio
+// @Produce json
+// @Param valor query string false "Valor da doação (ex: 1.50, padrão 1.00)"
+// @Success 200 {object} map[string]string "QR Code base64 e payload copia-e-cola"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 500 {object} map[string]string "Erro ao computar QR Code ou payload"
+// @Security ApiKeyAuth
+// @Router /v1/pix/qr [get]
 func (h *PixHandler) GenerateQR(w http.ResponseWriter, r *http.Request) {
 	valor := r.URL.Query().Get("valor")
 	if valor == "" {

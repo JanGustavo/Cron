@@ -17,7 +17,7 @@ const docTemplate = `{
     "paths": {
         "/health": {
             "get": {
-                "description": "Retorna o status de saúde da aplicação e a conectividade com o banco de dados Postgres.",
+                "description": "Retorna o status de saúde da aplicação, conectividade com o banco de dados Postgres, cache Redis e informações de versão do build.",
                 "produces": [
                     "application/json"
                 ],
@@ -36,7 +36,269 @@ const docTemplate = `{
                         }
                     },
                     "503": {
-                        "description": "Banco de dados indisponível",
+                        "description": "Banco de dados ou Redis indisponível",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/agent/chat": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Envia uma mensagem para o Agente de IA, permitindo agendar jobs, testar cURLs, consultar histórico ou gerenciar tarefas por linguagem natural.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "AI Agent"
+                ],
+                "summary": "Conversar com o Agente de IA do CronFlow",
+                "parameters": [
+                    {
+                        "description": "Histórico e nova mensagem do usuário",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.AgentChatRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Resposta do Agente de IA e histórico atualizado",
+                        "schema": {
+                            "$ref": "#/definitions/handler.AgentChatResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Payload inválido ou sem mensagem",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erros na API do Gemini/Groq ou durante a execução de ferramentas",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/forgot-password": {
+            "post": {
+                "description": "Envia um link de recuperação de senha por e-mail (Mockado nos logs do console em desenvolvimento).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Autenticação"
+                ],
+                "summary": "Solicitar redefinição de senha",
+                "parameters": [
+                    {
+                        "description": "E-mail do usuário",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.ForgotPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "E-mail enviado ou simulado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/login": {
+            "post": {
+                "description": "Autentica um usuário usando e-mail e senha, retornando os tokens JWT e a lista de projetos associados.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Autenticação"
+                ],
+                "summary": "Realizar login",
+                "parameters": [
+                    {
+                        "description": "Credenciais de login",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.LoginRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Autenticado com sucesso",
+                        "schema": {
+                            "$ref": "#/definitions/handler.AuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "E-mail ou senha ausentes",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Credenciais inválidas",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro interno de autenticação",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/reset-password": {
+            "post": {
+                "description": "Valida o token recebido por e-mail e atualiza a senha do usuário.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Autenticação"
+                ],
+                "summary": "Redefinir senha com token",
+                "parameters": [
+                    {
+                        "description": "Token de redefinição e nova senha",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.ResetPasswordRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Senha redefinida com sucesso",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/auth/signup": {
+            "post": {
+                "description": "Cria uma conta de usuário com e-mail, senha, nome completo e CPF, inicializando um projeto padrão e uma chave de API segura.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Autenticação"
+                ],
+                "summary": "Registrar uma nova conta de desenvolvedor",
+                "parameters": [
+                    {
+                        "description": "Dados de cadastro contendo e-mail, senha, nome completo, CPF e nome do projeto inicial",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/handler.SignupRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Conta criada, projeto inicializado e chaves geradas",
+                        "schema": {
+                            "$ref": "#/definitions/handler.AuthResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "E-mail, senha, nome do projeto, nome completo ou CPF ausentes, ou CPF matematicamente inválido",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "E-mail ou CPF já cadastrados por outro usuário",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro interno de banco ou geração de chaves",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -284,6 +546,86 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "Erro ao buscar job",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Altera os campos configuráveis de um Job (nome, cron, url, etc.).",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "Jobs"
+                ],
+                "summary": "Atualizar Configurações do Job",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID do Job",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Campos do Job a serem atualizados",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Job atualizado com sucesso",
+                        "schema": {
+                            "$ref": "#/definitions/job.Job"
+                        }
+                    },
+                    "400": {
+                        "description": "Parâmetros inválidos",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Job não encontrado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao atualizar job",
                         "schema": {
                             "type": "object",
                             "additionalProperties": {
@@ -563,6 +905,188 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/keys": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retorna os metadados de todas as chaves de API ativas no projeto (id, prefixo, data de criação). O segredo em texto claro nunca é retornado.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Keys"
+                ],
+                "summary": "Listar API Keys",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/postgres.APIKey"
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Gera uma nova chave de API para o projeto. O segredo em texto claro é retornado apenas nesta chamada. Guarde-o em local seguro.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Keys"
+                ],
+                "summary": "Criar API Key",
+                "responses": {
+                    "200": {
+                        "description": "Nova chave criada",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/keys/{id}": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Revoga e exclui definitivamente uma chave de API pelo ID. Ela não poderá mais ser usada para autenticação.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Keys"
+                ],
+                "summary": "Revogar/Deletar API Key",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "ID da chave de API",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Chave revogada",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/pix/qr": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retorna a string do QR Code no formato Data URI Base64 e o payload copia-e-cola correspondente para a chave Pix especificada e o valor solicitado.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PIX Apoio"
+                ],
+                "summary": "Gerar QR Code PIX Dinâmico",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Valor da doação (ex: 1.50, padrão 1.00)",
+                        "name": "valor",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "QR Code base64 e payload copia-e-cola",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Erro ao computar QR Code ou payload",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/pix/valores": {
+            "get": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "Retorna as opções rápidas e sugeridas de valores para fazer uma doação de apoio via PIX.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "PIX Apoio"
+                ],
+                "summary": "Listar valores sugeridos para apoio PIX",
+                "responses": {
+                    "200": {
+                        "description": "Opções sugeridas de apoio",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/handler.SugestaoValor"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Não autenticado",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -616,6 +1140,229 @@ const docTemplate = `{
                 "StatusTimeout"
             ]
         },
+        "handler.AgentChatRequest": {
+            "type": "object",
+            "properties": {
+                "history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handler.GeminiMessage"
+                    }
+                },
+                "message": {
+                    "type": "string",
+                    "example": "crie um job para rodar a cada 5 minutos batendo em https://httpbin.org/get"
+                }
+            }
+        },
+        "handler.AgentChatResponse": {
+            "type": "object",
+            "properties": {
+                "history": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handler.GeminiMessage"
+                    }
+                },
+                "reply": {
+                    "type": "string",
+                    "example": "Executando ferramenta createJob... Job criado com ID 4a82 com sucesso! 🚀"
+                }
+            }
+        },
+        "handler.AuthResponse": {
+            "type": "object",
+            "properties": {
+                "apiKey": {
+                    "type": "string"
+                },
+                "projects": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handler.ProjectResponse"
+                    }
+                },
+                "token": {
+                    "$ref": "#/definitions/handler.TokenResponse"
+                },
+                "user": {
+                    "$ref": "#/definitions/handler.UserResponse"
+                }
+            }
+        },
+        "handler.ForgotPasswordRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.GeminiFunctionCall": {
+            "type": "object",
+            "properties": {
+                "args": {
+                    "type": "object",
+                    "additionalProperties": {}
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.GeminiFunctionResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "response": {
+                    "type": "object",
+                    "additionalProperties": {}
+                }
+            }
+        },
+        "handler.GeminiMessage": {
+            "type": "object",
+            "properties": {
+                "parts": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/handler.GeminiPart"
+                    }
+                },
+                "role": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.GeminiPart": {
+            "type": "object",
+            "properties": {
+                "functionCall": {
+                    "$ref": "#/definitions/handler.GeminiFunctionCall"
+                },
+                "functionResponse": {
+                    "$ref": "#/definitions/handler.GeminiFunctionResponse"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "thoughtSignature": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.LoginRequest": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.ProjectResponse": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "userId": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.ResetPasswordRequest": {
+            "type": "object",
+            "properties": {
+                "newPassword": {
+                    "type": "string"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.SignupRequest": {
+            "type": "object",
+            "properties": {
+                "cpf": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "full_name": {
+                    "type": "string"
+                },
+                "password": {
+                    "type": "string"
+                },
+                "project_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.SugestaoValor": {
+            "type": "object",
+            "properties": {
+                "label": {
+                    "type": "string"
+                },
+                "valor": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.TokenResponse": {
+            "type": "object",
+            "properties": {
+                "accessToken": {
+                    "type": "string"
+                },
+                "expiresIn": {
+                    "type": "integer"
+                },
+                "refreshToken": {
+                    "type": "string"
+                },
+                "tokenType": {
+                    "type": "string"
+                }
+            }
+        },
+        "handler.UserResponse": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "plan": {
+                    "type": "string"
+                }
+            }
+        },
         "job.HTTPMethod": {
             "type": "string",
             "enum": [
@@ -656,6 +1403,9 @@ const docTemplate = `{
                 "name": {
                     "type": "string"
                 },
+                "next_job_id": {
+                    "type": "string"
+                },
                 "next_run_at": {
                     "type": "string"
                 },
@@ -672,6 +1422,12 @@ const docTemplate = `{
                 },
                 "status": {
                     "$ref": "#/definitions/job.Status"
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "timezone": {
                     "description": "\"AMERICA/Sao_Paulo\", \"UTC\", etc",
@@ -701,6 +1457,23 @@ const docTemplate = `{
                 "StatusPaused",
                 "StatusFailing"
             ]
+        },
+        "postgres.APIKey": {
+            "type": "object",
+            "properties": {
+                "createdAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "prefix": {
+                    "type": "string"
+                },
+                "projectId": {
+                    "type": "string"
+                }
+            }
         }
     },
     "securityDefinitions": {

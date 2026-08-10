@@ -28,6 +28,16 @@ func NewAgentHandler(jobService *service.JobService, cfg *config.Config) *AgentH
 	}
 }
 
+type AgentChatRequest struct {
+	Message string          `json:"message" example:"crie um job para rodar a cada 5 minutos batendo em https://httpbin.org/get"`
+	History []GeminiMessage `json:"history"`
+}
+
+type AgentChatResponse struct {
+	Reply   string          `json:"reply" example:"Executando ferramenta createJob... Job criado com ID 4a82 com sucesso! 🚀"`
+	History []GeminiMessage `json:"history"`
+}
+
 // Gemini Types
 type GeminiMessage struct {
 	Role  string       `json:"role"`
@@ -234,13 +244,23 @@ Regras de Comportamento:
 4. Se o usuário pedir para executar ou testar um cURL diretamente, utilize a ferramenta executeCurlDirect para fazer a chamada HTTP instantânea e mostre os resultados.
 5. Após criar um job com sucesso, exiba os detalhes formatados e o ID retornado.`
 
+// Chat — POST /v1/agent/chat
+// @Summary Conversar com o Agente de IA do CronFlow
+// @Description Envia uma mensagem para o Agente de IA, permitindo agendar jobs, testar cURLs, consultar histórico ou gerenciar tarefas por linguagem natural.
+// @Tags AI Agent
+// @Accept json
+// @Produce json
+// @Param body body AgentChatRequest true "Histórico e nova mensagem do usuário"
+// @Success 200 {object} AgentChatResponse "Resposta do Agente de IA e histórico atualizado"
+// @Failure 400 {object} map[string]string "Payload inválido ou sem mensagem"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 500 {object} map[string]string "Erros na API do Gemini/Groq ou durante a execução de ferramentas"
+// @Security ApiKeyAuth
+// @Router /v1/agent/chat [post]
 func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 
-	var input struct {
-		Message string          `json:"message"`
-		History []GeminiMessage `json:"history"`
-	}
+	var input AgentChatRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "body invalido")
