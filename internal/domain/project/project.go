@@ -8,8 +8,9 @@ import "time"
 // O isolamento multi-tenant é garantido filtrando sempre por project_id.
 
 type Project struct {
-	ID        string
-	UserID    string
-	Name      string
-	CreatedAt time.Time
+	ID            string
+	UserID        string
+	Name          string
+	CreatedAt     time.Time
+	WebhookSecret *string
 }

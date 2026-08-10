@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -14,10 +15,12 @@ import (
 	"github.com/JanGustavo/Cron/internal/auth"
 )
 
-type AlertService struct{}
+type AlertService struct {
+	db *sql.DB
+}
 
-func NewAlertService() *AlertService {
-	return &AlertService{}
+func NewAlertService(db *sql.DB) *AlertService {
+	return &AlertService{db: db}
 }
 
 type alertPayload struct {
@@ -109,9 +112,22 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 		}
 
 		// Assinatura de segurança de webhook (Stripe/Svix)
-		if projectID != "" && jwtSecret != "" && len(payloadBytes) > 0 {
+		if projectID != "" && len(payloadBytes) > 0 {
 			timestamp := time.Now().Unix()
-			secret := auth.ComputeWebhookSecret(projectID, jwtSecret)
+			
+			// Resolve o segredo: prioriza o customizado do banco se existir, cai no fallback de segurança
+			secret := ""
+			if s.db != nil {
+				var dbSecret *string
+				errQuery := s.db.QueryRowContext(ctx, `SELECT webhook_secret FROM projects WHERE id = $1`, projectID).Scan(&dbSecret)
+				if errQuery == nil && dbSecret != nil && *dbSecret != "" {
+					secret = *dbSecret
+				}
+			}
+			if secret == "" {
+				secret = auth.ComputeWebhookSecret(projectID, jwtSecret)
+			}
+			
 			sig := auth.SignWebhookPayload(payloadBytes, timestamp, secret)
 
 			req.Header.Set("X-CronFlow-Timestamp", strconv.FormatInt(timestamp, 10))

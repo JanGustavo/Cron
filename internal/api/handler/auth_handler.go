@@ -1,6 +1,8 @@
 package handler
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -238,7 +240,12 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 				UserID:        proj.UserID,
 				Name:          proj.Name,
 				CreatedAt:     proj.CreatedAt.Format(time.RFC3339),
-				WebhookSecret: auth.ComputeWebhookSecret(proj.ID, h.cfg.JWTSecret),
+				WebhookSecret: func() string {
+					if proj.WebhookSecret != nil && *proj.WebhookSecret != "" {
+						return *proj.WebhookSecret
+					}
+					return auth.ComputeWebhookSecret(proj.ID, h.cfg.JWTSecret)
+				}(),
 			},
 		},
 		APIKey: apiKey, // Plain text mostrada apenas UMA vez no cadastro
@@ -306,7 +313,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 				UserID:        p.UserID,
 				Name:          p.Name,
 				CreatedAt:     p.CreatedAt.Format(time.RFC3339),
-				WebhookSecret: auth.ComputeWebhookSecret(p.ID, h.cfg.JWTSecret),
+				WebhookSecret: func() string {
+					if p.WebhookSecret != nil && *p.WebhookSecret != "" {
+						return *p.WebhookSecret
+					}
+					return auth.ComputeWebhookSecret(p.ID, h.cfg.JWTSecret)
+				}(),
 			})
 		}
 	}
@@ -809,4 +821,38 @@ func (h *AuthHandler) handleOAuthUser(w http.ResponseWriter, r *http.Request, em
 	}
 
 	http.Redirect(w, r, redirectURL, http.StatusTemporaryRedirect)
+}
+
+// RotateWebhookSecret — POST /v1/projects/webhook-secret/rotate
+// @Summary Rotacionar Segredo de Webhook
+// @Description Gera e salva um novo segredo HMAC-SHA256 aleatório para assinar os webhooks de alerta do workspace.
+// @Tags Autenticação
+// @Produce json
+// @Success 200 {object} map[string]string "Novo segredo gerado"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 500 {object} map[string]string "Erro interno"
+// @Security ApiKeyAuth
+// @Router /v1/projects/webhook-secret/rotate [post]
+func (h *AuthHandler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "não autorizado")
+		return
+	}
+
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao gerar segredo aleatório")
+		return
+	}
+	newSecret := "whsec_" + hex.EncodeToString(bytes)
+
+	if err := h.userRepo.UpdateProjectWebhookSecret(r.Context(), proj.ID, newSecret); err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao salvar novo segredo no banco")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"webhookSecret": newSecret,
+	})
 }

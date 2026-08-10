@@ -53,6 +53,9 @@ func TestWorkerIntegration(t *testing.T) {
 		return
 	}
 
+	// Garante DDL do CPF, Nome Completo, WebhookSecret e LastUsedAt no banco de teste
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf VARCHAR(11) UNIQUE; ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT; ALTER TABLE projects ADD COLUMN IF NOT EXISTS webhook_secret TEXT; ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;`)
+
 	// 2. Cria um servidor HTTP mock (Webhook de Teste)
 	webhookCalled := false
 	var receivedMethod string
@@ -74,7 +77,7 @@ func TestWorkerIntegration(t *testing.T) {
 	jobRepo := postgres.NewJobRepository(db)
 	execRepo := postgres.NewExecutionRepository(db)
 	userRepo := postgres.NewUserRepository(db)
-	alertService := service.NewAlertService()
+	alertService := service.NewAlertService(db)
 
 	// Inicializa enqueuer
 	enqueuer := queue.NewEnqueuer(redisURL)

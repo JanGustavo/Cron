@@ -86,7 +86,7 @@ func (r *UserRepository) FindByCPF(ctx context.Context, cpf string) (*user.User,
 // FindProjectsByUserID retorna todos os projetos de um usuário.
 func (r *UserRepository) FindProjectsByUserID(ctx context.Context, userID string) ([]*project.Project, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, user_id, name, created_at FROM projects WHERE user_id = $1`,
+		`SELECT id, user_id, name, created_at, webhook_secret FROM projects WHERE user_id = $1`,
 		userID,
 	)
 	if err != nil {
@@ -97,7 +97,7 @@ func (r *UserRepository) FindProjectsByUserID(ctx context.Context, userID string
 	var projects []*project.Project
 	for rows.Next() {
 		p := &project.Project{}
-		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.CreatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.UserID, &p.Name, &p.CreatedAt, &p.WebhookSecret); err != nil {
 			return nil, fmt.Errorf("UserRepository.FindProjectsByUserID scan: %w", err)
 		}
 		projects = append(projects, p)
@@ -109,13 +109,25 @@ func (r *UserRepository) FindProjectsByUserID(ctx context.Context, userID string
 func (r *UserRepository) CreateProject(ctx context.Context, userID, name string) (*project.Project, error) {
 	p := &project.Project{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO projects (user_id, name) VALUES ($1, $2) RETURNING id, user_id, name, created_at`,
+		`INSERT INTO projects (user_id, name) VALUES ($1, $2) RETURNING id, user_id, name, created_at, webhook_secret`,
 		userID, name,
-	).Scan(&p.ID, &p.UserID, &p.Name, &p.CreatedAt)
+	).Scan(&p.ID, &p.UserID, &p.Name, &p.CreatedAt, &p.WebhookSecret)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.CreateProject: %w", err)
 	}
 	return p, nil
+}
+
+// UpdateProjectWebhookSecret atualiza o segredo de webhook de um projeto específico.
+func (r *UserRepository) UpdateProjectWebhookSecret(ctx context.Context, projectID, secret string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE projects SET webhook_secret = $1 WHERE id = $2`,
+		secret, projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("UserRepository.UpdateProjectWebhookSecret: %w", err)
+	}
+	return nil
 }
 
 // CreateAPIKey salva o hash da key no banco — nunca o plain text.

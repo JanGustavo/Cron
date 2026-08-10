@@ -48,6 +48,7 @@ func New(
 		r.Use(middleware.Auth(userRepo, jwtSecret))
 
 		r.Post("/v1/agent/chat", agentHandler.Chat)
+		r.Post("/v1/projects/webhook-secret/rotate", authHandler.RotateWebhookSecret)
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
 		r.Get("/v1/executions", executionHandler.ListGlobal)
 

@@ -29,7 +29,7 @@ func main() {
 	// Repositories e services
 	jobRepo := postgres.NewJobRepository(db)
 	executionRepo := postgres.NewExecutionRepository(db)
-	alertService := service.NewAlertService()
+	alertService := service.NewAlertService(db)
 
 	enqueuer := queue.NewEnqueuer(cfg.RedisURL)
 	defer enqueuer.Close()
