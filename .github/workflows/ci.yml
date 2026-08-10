@@ -1,0 +1,75 @@
+name: Go Backend CI
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  test:
+    name: Build & Test Backend
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: cronflow_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23.x'
+          cache: true
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Run database migrations
+        env:
+          PGPASSWORD: postgres
+        run: |
+          cat migrations/*.up.sql | psql -h localhost -U postgres -d cronflow_test
+
+      - name: Run Go tests
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/cronflow_test?sslmode=disable
+          REDIS_URL: redis://localhost:6379
+          JWT_SECRET: test_jwt_secret_must_be_long_enough_32_bytes_long_secret
+        run: go test -v -race ./...
+
+      - name: Build cmd/api binary
+        run: go build -o bin/api ./cmd/api
+
+      - name: Build cmd/scheduler binary
+        run: go build -o bin/scheduler ./cmd/scheduler
+
+      - name: Build cmd/worker binary
+        run: go build -o bin/worker ./cmd/worker
