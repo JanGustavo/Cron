@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/JanGustavo/Cron/internal/domain/project"
 	"github.com/JanGustavo/Cron/internal/domain/user"
@@ -159,4 +160,54 @@ func (r *UserRepository) FindUserByProjectID(ctx context.Context, projectID stri
 		return nil, fmt.Errorf("UserRepository.FindUserByProjectID: %w", err)
 	}
 	return u, nil
+}
+
+type APIKey struct {
+	ID        string    `json:"id"`
+	ProjectID string    `json:"projectId"`
+	Prefix    string    `json:"prefix"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// FindAPIKeysByProjectID retorna todas as API Keys ativas vinculadas a um projeto.
+// O hash nunca é retornado por motivos de segurança.
+func (r *UserRepository) FindAPIKeysByProjectID(ctx context.Context, projectID string) ([]*APIKey, error) {
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT id, project_id, prefix, created_at FROM api_keys WHERE project_id = $1 ORDER BY created_at DESC`,
+		projectID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("UserRepository.FindAPIKeysByProjectID: %w", err)
+	}
+	defer rows.Close()
+
+	var keys []*APIKey
+	for rows.Next() {
+		k := &APIKey{}
+		if err := rows.Scan(&k.ID, &k.ProjectID, &k.Prefix, &k.CreatedAt); err != nil {
+			return nil, fmt.Errorf("UserRepository.FindAPIKeysByProjectID scan: %w", err)
+		}
+		keys = append(keys, k)
+	}
+	return keys, nil
+}
+
+// DeleteAPIKey remove/revoga uma chave de API específica por ID e project_id (para segurança extra).
+func (r *UserRepository) DeleteAPIKey(ctx context.Context, id, projectID string) error {
+	result, err := r.db.ExecContext(ctx,
+		`DELETE FROM api_keys WHERE id = $1 AND project_id = $2`,
+		id,
+		projectID,
+	)
+	if err != nil {
+		return fmt.Errorf("UserRepository.DeleteAPIKey: %w", err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return fmt.Errorf("API Key não encontrada ou você não tem permissão para revogá-la")
+	}
+	return nil
 }

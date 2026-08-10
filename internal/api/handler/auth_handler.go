@@ -5,9 +5,11 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/JanGustavo/Cron/internal/api/middleware"
 	"github.com/JanGustavo/Cron/internal/auth"
 	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	"github.com/go-chi/chi/v5"
 )
 
 type AuthHandler struct {
@@ -231,4 +233,96 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, res)
+}
+
+// ListAPIKeys — GET /v1/keys
+// @Summary Listar API Keys
+// @Description Retorna os metadados de todas as chaves de API ativas no projeto (id, prefixo, data de criação). O segredo em texto claro nunca é retornado.
+// @Tags API Keys
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {array} postgres.APIKey
+// @Router /v1/keys [get]
+func (h *AuthHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		return
+	}
+
+	keys, err := h.userRepo.FindAPIKeysByProjectID(r.Context(), proj.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao listar chaves de API")
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(keys)
+}
+
+// CreateAPIKey — POST /v1/keys
+// @Summary Criar API Key
+// @Description Gera uma nova chave de API para o projeto. O segredo em texto claro é retornado apenas nesta chamada. Guarde-o em local seguro.
+// @Tags API Keys
+// @Produce json
+// @Security ApiKeyAuth
+// @Success 200 {object} map[string]string "Nova chave criada"
+// @Router /v1/keys [post]
+func (h *AuthHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		return
+	}
+
+	apiKey, err := auth.Generate()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar chave de API")
+		return
+	}
+
+	keyHash := auth.Hash(apiKey)
+	prefix := apiKey[:12] // Exemplo: "cf_live_abcd"
+	if err := h.userRepo.CreateAPIKey(r.Context(), proj.ID, keyHash, prefix); err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao salvar nova chave de API")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, map[string]string{
+		"apiKey": apiKey,
+		"prefix": prefix,
+	})
+}
+
+// DeleteAPIKey — DELETE /v1/keys/{id}
+// @Summary Revogar/Deletar API Key
+// @Description Revoga e exclui definitivamente uma chave de API pelo ID. Ela não poderá mais ser usada para autenticação.
+// @Tags API Keys
+// @Produce json
+// @Security ApiKeyAuth
+// @Param id path string true "ID da chave de API"
+// @Success 200 {object} map[string]string "Chave revogada"
+// @Router /v1/keys/{id} [delete]
+func (h *AuthHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		return
+	}
+
+	id := chi.URLParam(r, "id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "ID da chave é obrigatório")
+		return
+	}
+
+	if err := h.userRepo.DeleteAPIKey(r.Context(), id, proj.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao revogar chave de API: " + err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "Chave de API revogada com sucesso",
+	})
 }

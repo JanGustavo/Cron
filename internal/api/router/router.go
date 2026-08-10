@@ -48,6 +48,12 @@ func New(
 		r.Get("/v1/pix/valores", pixHandler.ListValores)
 		r.Get("/v1/pix/qr", pixHandler.GenerateQR)
 
+		r.Route("/v1/keys", func(r chi.Router) {
+			r.Get("/", authHandler.ListAPIKeys)
+			r.Post("/", authHandler.CreateAPIKey)
+			r.Delete("/{id}", authHandler.DeleteAPIKey)
+		})
+
 		r.Route("/v1/jobs", func(r chi.Router) {
 			r.Get("/", jobHandler.List)
 			r.Post("/", jobHandler.Create)
