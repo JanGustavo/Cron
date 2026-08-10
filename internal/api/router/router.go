@@ -19,6 +19,7 @@ func New(
 	authHandler *handler.AuthHandler,
 	agentHandler *handler.AgentHandler,
 	pixHandler *handler.PixHandler,
+	metricsHandler *handler.MetricsHandler,
 	jwtSecret string,
 ) *chi.Mux {
 	r := chi.NewRouter()
@@ -51,6 +52,7 @@ func New(
 		r.Post("/v1/projects/webhook-secret/rotate", authHandler.RotateWebhookSecret)
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
 		r.Get("/v1/executions", executionHandler.ListGlobal)
+		r.Get("/v1/metrics/queue", metricsHandler.QueueMetrics)
 
 		r.Get("/v1/pix/valores", pixHandler.ListValores)
 		r.Get("/v1/pix/qr", pixHandler.GenerateQR)
