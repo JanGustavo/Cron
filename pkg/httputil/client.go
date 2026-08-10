@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"syscall"
 	"time"
 )
@@ -47,6 +48,9 @@ var client = &http.Client{
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 			Control: func(network, address string, c syscall.RawConn) error {
+				if os.Getenv("ALLOW_LOCAL_WEBHOOKS") == "true" {
+					return nil
+				}
 				host, _, err := net.SplitHostPort(address)
 				if err != nil {
 					return err
