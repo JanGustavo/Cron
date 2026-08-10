@@ -3,7 +3,9 @@ package main
 import (
 	"log"
 	"net/http"
+	"net/url"
 
+	"github.com/JanGustavo/Cron/docs"
 	"github.com/JanGustavo/Cron/internal/api/handler"
 	"github.com/JanGustavo/Cron/internal/api/router"
 	"github.com/JanGustavo/Cron/internal/config"
@@ -26,6 +28,14 @@ import (
 func main() {
 	// 1. carrega as configuracoes
 	cfg := config.Load()
+
+	// Ajusta dinamicamente o Host e Schemes do Swagger a partir da API_URL
+	if cfg.APIURL != "" {
+		if u, err := url.Parse(cfg.APIURL); err == nil {
+			docs.SwaggerInfo.Host = u.Host
+			docs.SwaggerInfo.Schemes = []string{u.Scheme}
+		}
+	}
 
 	// 2. conecta ao banco
 	db, err := database.Connect(cfg.DatabaseURL)
