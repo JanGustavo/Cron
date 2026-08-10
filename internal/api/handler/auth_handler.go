@@ -16,16 +16,18 @@ import (
 	"github.com/JanGustavo/Cron/internal/auth"
 	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	"github.com/JanGustavo/Cron/internal/service"
 	"github.com/go-chi/chi/v5"
 )
 
 type AuthHandler struct {
-	userRepo *postgres.UserRepository
-	cfg      *config.Config
+	userRepo    *postgres.UserRepository
+	mailService *service.MailService
+	cfg         *config.Config
 }
 
-func NewAuthHandler(userRepo *postgres.UserRepository, cfg *config.Config) *AuthHandler {
-	return &AuthHandler{userRepo: userRepo, cfg: cfg}
+func NewAuthHandler(userRepo *postgres.UserRepository, mailService *service.MailService, cfg *config.Config) *AuthHandler {
+	return &AuthHandler{userRepo: userRepo, mailService: mailService, cfg: cfg}
 }
 
 type SignupRequest struct {
@@ -494,19 +496,15 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mock do envio de e-mail por Logs no terminal
-	resetLink := "http://localhost:5173/reset-password?token=" + token
-	log.Printf("\n========================================================================\n" +
-		"[MOCK EMAIL] Envio de Recuperação de Senha\n" +
-		"Para: %s\n" +
-		"Assunto: Recuperação de Senha - CronFlow\n" +
-		"Link: %s\n" +
-		"========================================================================\n", u.Email, resetLink)
+	resetLink := fmt.Sprintf("%s/reset-password?token=%s", h.cfg.FrontendURL, token)
+	if err := h.mailService.SendPasswordResetEmail(u.Email, resetLink); err != nil {
+		log.Printf("AuthHandler.ForgotPassword: falha ao enviar e-mail: %v", err)
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "success",
-		"message": "E-mail de recuperação enviado (Mock).",
-		"link":    resetLink, // Retornamos o link direto na resposta para fins de teste no frontend
+		"message": "Instruções de recuperação enviadas.",
+		"link":    resetLink,
 	})
 }
 

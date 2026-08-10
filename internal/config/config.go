@@ -29,6 +29,11 @@ type Config struct {
 	GitHubClientSecret string
 	APIURL             string
 	FrontendURL        string
+	SmtpHost           string
+	SmtpPort           int
+	SmtpUser           string
+	SmtpPass           string
+	SmtpFrom           string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -53,6 +58,11 @@ func Load() *Config {
 		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),
 		APIURL:             getEnv("API_URL", "http://localhost:8080"),
 		FrontendURL:        getEnv("FRONTEND_URL", "http://localhost:5173"),
+		SmtpHost:           getEnv("SMTP_HOST", ""),
+		SmtpPort:           getEnvAsInt("SMTP_PORT", 587),
+		SmtpUser:           getEnv("SMTP_USER", ""),
+		SmtpPass:           getEnv("SMTP_PASS", ""),
+		SmtpFrom:           getEnv("SMTP_FROM", "no-reply@cronflow.me"),
 	}
 }
 

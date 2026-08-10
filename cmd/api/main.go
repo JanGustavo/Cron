@@ -58,12 +58,13 @@ func main() {
 
 	// Services
 	jobService := service.NewJobService(jobRepo, userRepo, enqueuer, cfg)
+	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
 
 	// Handlers
 	healthHandler := handler.NewHealthHandler(db, cfg.RedisURL)
 	jobHandler := handler.NewJobHandler(jobService)
 	executionHandler := handler.NewExecutionHandler(jobService, executionRepo)
-	authHandler := handler.NewAuthHandler(userRepo, cfg)
+	authHandler := handler.NewAuthHandler(userRepo, mailService, cfg)
 	agentHandler := handler.NewAgentHandler(jobService, cfg)
 	pixHandler := handler.NewPixHandler()
 
