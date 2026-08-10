@@ -11,6 +11,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/database"
 	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	"github.com/JanGustavo/Cron/internal/repository/redis"
 	"github.com/JanGustavo/Cron/internal/scheduler"
 )
 
@@ -26,10 +27,13 @@ func main() {
 	enqueuer := queue.NewEnqueuer(cfg.RedisURL)
 	defer enqueuer.Close()
 
+	lockRepo := redis.NewLockRepository(cfg.RedisURL)
+	defer lockRepo.Close()
+
 	jobRepo := postgres.NewJobRepository(db)
 	executionRepo := postgres.NewExecutionRepository(db)
 
-	sched := scheduler.New(jobRepo, executionRepo, enqueuer, 30*time.Second)
+	sched := scheduler.New(jobRepo, executionRepo, enqueuer, lockRepo, 30*time.Second)
 
 	// Graceful shutdown: Ctrl+C ou SIGTERM encerra o loop limpo
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

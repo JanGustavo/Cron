@@ -2,11 +2,13 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"time"
 
 	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	"github.com/JanGustavo/Cron/internal/repository/redis"
 	"github.com/JanGustavo/Cron/pkg/cronparser"
 )
 
@@ -23,6 +25,7 @@ type Scheduler struct {
 	jobRepo       *postgres.JobRepository
 	executionRepo *postgres.ExecutionRepository
 	enqueuer      *queue.Enqueuer
+	lockRepo      *redis.LockRepository
 	interval      time.Duration
 	cleanupTick   int
 }
@@ -31,12 +34,14 @@ func New(
 	jobRepo *postgres.JobRepository,
 	executionRepo *postgres.ExecutionRepository,
 	enqueuer *queue.Enqueuer,
+	lockRepo *redis.LockRepository,
 	interval time.Duration,
 ) *Scheduler {
 	return &Scheduler{
 		jobRepo:       jobRepo,
 		executionRepo: executionRepo,
 		enqueuer:      enqueuer,
+		lockRepo:      lockRepo,
 		interval:      interval,
 	}
 }
@@ -66,6 +71,19 @@ func (s *Scheduler) Run(ctx context.Context) {
 // tick é a unidade de trabalho: busca jobs elegíveis, enfileira e atualiza next_run.
 func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
+
+	if s.lockRepo != nil {
+		epochWindow := now.Unix() / 30 // bloco de tempo de 30s
+		lockKey := fmt.Sprintf("cronflow:scheduler:lock:%d", epochWindow)
+
+		acquired, err := s.lockRepo.Acquire(ctx, lockKey, 40*time.Second)
+		if err != nil {
+			log.Printf("Scheduler.tick: erro ao obter lock no Redis: %v", err)
+		} else if !acquired {
+			// Outra instância já executou ou está executando neste bloco de tempo
+			return
+		}
+	}
 
 	jobs, err := s.jobRepo.FindEligibleToRun(ctx, now)
 	if err != nil {
