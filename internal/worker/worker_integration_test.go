@@ -90,7 +90,7 @@ func TestWorkerIntegration(t *testing.T) {
 	}
 	if u == nil {
 		// Se não existir, cria um
-		u, err = userRepo.CreateUserWithPassword(ctx, "admin@cronflow.sh", "test-pwd-hash")
+		u, err = userRepo.CreateUserWithPassword(ctx, "admin@cronflow.sh", "test-pwd-hash", "Admin Tester", "11144477735")
 		if err != nil {
 			t.Fatalf("Erro ao criar usuário de teste: %v", err)
 		}

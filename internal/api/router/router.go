@@ -38,6 +38,10 @@ func New(
 	r.Post("/v1/auth/login", authHandler.Login)
 	r.Post("/v1/auth/forgot-password", authHandler.ForgotPassword)
 	r.Post("/v1/auth/reset-password", authHandler.ResetPassword)
+	r.Get("/v1/auth/oauth/google", authHandler.OAuthGoogle)
+	r.Get("/v1/auth/oauth/google/callback", authHandler.OAuthGoogleCallback)
+	r.Get("/v1/auth/oauth/github", authHandler.OAuthGitHub)
+	r.Get("/v1/auth/oauth/github/callback", authHandler.OAuthGitHubCallback)
 
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {

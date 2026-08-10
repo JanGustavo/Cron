@@ -34,6 +34,9 @@ func main() {
 	}
 	defer db.Close()
 
+	// Garante DDL do CPF e Nome Completo nos bancos local e prod
+	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf VARCHAR(11) UNIQUE; ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT;`)
+
 	// Repositories
 	userRepo := postgres.NewUserRepository(db)
 	jobRepo := postgres.NewJobRepository(db)

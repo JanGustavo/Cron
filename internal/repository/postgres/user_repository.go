@@ -38,13 +38,13 @@ func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.Us
 	return u, nil
 }
 
-// CreateUserWithPassword insere um novo usuário com senha no banco.
-func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, passwordHash string) (*user.User, error) {
+// CreateUserWithPassword insere um novo usuário com senha, nome completo e CPF no banco.
+func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, passwordHash, fullName, cpf string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, plan, COALESCE(password_hash, ''), created_at`,
-		email, passwordHash,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.CreatedAt)
+		`INSERT INTO users (email, password_hash, full_name, cpf) VALUES ($1, $2, $3, $4) RETURNING id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), created_at`,
+		email, passwordHash, fullName, cpf,
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.CreateUserWithPassword: %w", err)
 	}
@@ -55,14 +55,30 @@ func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, pass
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), created_at FROM users WHERE email = $1 LIMIT 1`,
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), created_at FROM users WHERE email = $1 LIMIT 1`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.FindByEmail: %w", err)
+	}
+	return u, nil
+}
+
+// FindByCPF busca um usuário pelo CPF.
+func (r *UserRepository) FindByCPF(ctx context.Context, cpf string) (*user.User, error) {
+	u := &user.User{}
+	err := r.db.QueryRowContext(ctx,
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), created_at FROM users WHERE cpf = $1 LIMIT 1`,
+		cpf,
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.CreatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("UserRepository.FindByCPF: %w", err)
 	}
 	return u, nil
 }

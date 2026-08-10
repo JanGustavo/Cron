@@ -20,6 +20,8 @@ type User struct {
 	Email        string
 	PasswordHash string
 	Plan         Plan
+	FullName     string
+	CPF          string
 	CreatedAt    time.Time
 }
 

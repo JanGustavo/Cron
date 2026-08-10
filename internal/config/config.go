@@ -14,15 +14,21 @@ import (
 
 // Configurações da aplicação
 type Config struct {
-	AppEnv          string
-	Port            string
-	DatabaseURL     string
-	RedisURL        string
-	MaxJobsFreePlan int
-	MaxJobsPaidPlan int
-	JWTSecret       string
-	GeminiAPIKey    string
-	GroqAPIKey      string
+	AppEnv             string
+	Port               string
+	DatabaseURL        string
+	RedisURL           string
+	MaxJobsFreePlan    int
+	MaxJobsPaidPlan    int
+	JWTSecret          string
+	GeminiAPIKey       string
+	GroqAPIKey         string
+	GoogleClientID     string
+	GoogleClientSecret string
+	GitHubClientID     string
+	GitHubClientSecret string
+	APIURL             string
+	FrontendURL        string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -32,15 +38,21 @@ func Load() *Config {
 	}
 
 	return &Config{
-		AppEnv:          getEnv("APP_ENV", "development"),
-		Port:            getEnv("PORT", "8080"),
-		DatabaseURL:     mustGetEnv("DATABASE_URL"),
-		RedisURL:        getEnv("REDIS_URL", "redis://localhost:6379"),
-		MaxJobsFreePlan: getEnvAsInt("MAX_JOBS_FREE_PLAN", 3),
-		MaxJobsPaidPlan: getEnvAsInt("MAX_JOBS_PAID_PLAN", 20),
-		JWTSecret:       getEnv("JWT_SECRET", "cronflow_jwt_secret_fallback_key_2026_xyz"),
-		GeminiAPIKey:    getEnv("GEMINI_API_KEY", ""),
-		GroqAPIKey:      getEnv("GROQ_API_KEY", ""),
+		AppEnv:             getEnv("APP_ENV", "development"),
+		Port:               getEnv("PORT", "8080"),
+		DatabaseURL:        mustGetEnv("DATABASE_URL"),
+		RedisURL:           getEnv("REDIS_URL", "redis://localhost:6379"),
+		MaxJobsFreePlan:    getEnvAsInt("MAX_JOBS_FREE_PLAN", 3),
+		MaxJobsPaidPlan:    getEnvAsInt("MAX_JOBS_PAID_PLAN", 20),
+		JWTSecret:          getEnv("JWT_SECRET", "cronflow_jwt_secret_fallback_key_2026_xyz"),
+		GeminiAPIKey:       getEnv("GEMINI_API_KEY", ""),
+		GroqAPIKey:         getEnv("GROQ_API_KEY", ""),
+		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
+		GitHubClientID:     getEnv("GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),
+		APIURL:             getEnv("API_URL", "http://localhost:8080"),
+		FrontendURL:        getEnv("FRONTEND_URL", "http://localhost:5173"),
 	}
 }
 
