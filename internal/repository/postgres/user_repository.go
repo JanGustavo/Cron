@@ -211,3 +211,15 @@ func (r *UserRepository) DeleteAPIKey(ctx context.Context, id, projectID string)
 	}
 	return nil
 }
+
+// UpdatePassword altera a senha de um usuário no banco.
+func (r *UserRepository) UpdatePassword(ctx context.Context, userID, newPasswordHash string) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET password_hash = $1 WHERE id = $2`,
+		newPasswordHash, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("UserRepository.UpdatePassword: %w", err)
+	}
+	return nil
+}

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"log"
 	"net/http"
 	"time"
 
@@ -324,5 +325,120 @@ func (h *AuthHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"status":  "success",
 		"message": "Chave de API revogada com sucesso",
+	})
+}
+
+type ForgotPasswordRequest struct {
+	Email string `json:"email"`
+}
+
+type ResetPasswordRequest struct {
+	Token       string `json:"token"`
+	NewPassword string `json:"newPassword"`
+}
+
+// ForgotPassword — POST /v1/auth/forgot-password
+// @Summary Solicitar redefinição de senha
+// @Description Envia um link de recuperação de senha por e-mail (Mockado nos logs do console em desenvolvimento).
+// @Tags Autenticação
+// @Accept json
+// @Produce json
+// @Param body body ForgotPasswordRequest true "E-mail do usuário"
+// @Success 200 {object} map[string]string "E-mail enviado ou simulado"
+// @Router /v1/auth/forgot-password [post]
+func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
+	var req ForgotPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "payload inválido")
+		return
+	}
+
+	if req.Email == "" {
+		writeError(w, http.StatusBadRequest, "o email é obrigatório")
+		return
+	}
+
+	u, err := h.userRepo.FindByEmail(r.Context(), req.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro interno ao processar solicitação")
+		return
+	}
+
+	if u == nil {
+		// Sucesso genérico para evitar vazamento de e-mails
+		writeJSON(w, http.StatusOK, map[string]string{
+			"status":  "success",
+			"message": "Se o e-mail existir em nossa base, um link de recuperação foi enviado.",
+		})
+		return
+	}
+
+	// Gera token temporário de 15 minutos assinado
+	token, err := auth.GenerateToken(u.ID, u.Email, "", "", h.cfg.JWTSecret, 15*time.Minute)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao gerar token de recuperação")
+		return
+	}
+
+	// Mock do envio de e-mail por Logs no terminal
+	resetLink := "http://localhost:5173/reset-password?token=" + token
+	log.Printf("\n========================================================================\n" +
+		"[MOCK EMAIL] Envio de Recuperação de Senha\n" +
+		"Para: %s\n" +
+		"Assunto: Recuperação de Senha - CronFlow\n" +
+		"Link: %s\n" +
+		"========================================================================\n", u.Email, resetLink)
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":  "success",
+		"message": "E-mail de recuperação enviado (Mock).",
+		"link":    resetLink, // Retornamos o link direto na resposta para fins de teste no frontend
+	})
+}
+
+// ResetPassword — POST /v1/auth/reset-password
+// @Summary Redefinir senha com token
+// @Description Valida o token recebido por e-mail e atualiza a senha do usuário.
+// @Tags Autenticação
+// @Accept json
+// @Produce json
+// @Param body body ResetPasswordRequest true "Token de redefinição e nova senha"
+// @Success 200 {object} map[string]string "Senha redefinida com sucesso"
+// @Router /v1/auth/reset-password [post]
+func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
+	var req ResetPasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "payload inválido")
+		return
+	}
+
+	if req.Token == "" || req.NewPassword == "" {
+		writeError(w, http.StatusBadRequest, "token e nova senha são obrigatórios")
+		return
+	}
+
+	// Valida o token JWT e extrai os claims
+	claims, err := auth.ValidateToken(req.Token, h.cfg.JWTSecret)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Token de recuperação inválido ou expirado")
+		return
+	}
+
+	// Calcula o hash bcrypt da nova senha
+	newPwdHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao processar nova senha")
+		return
+	}
+
+	// Salva a nova senha no banco
+	if err := h.userRepo.UpdatePassword(r.Context(), claims.UserID, newPwdHash); err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao atualizar senha no banco")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "Senha redefinida com sucesso!",
 	})
 }

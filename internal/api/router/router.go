@@ -36,6 +36,8 @@ func New(
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Post("/v1/auth/signup", authHandler.Signup)
 	r.Post("/v1/auth/login", authHandler.Login)
+	r.Post("/v1/auth/forgot-password", authHandler.ForgotPassword)
+	r.Post("/v1/auth/reset-password", authHandler.ResetPassword)
 
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {
