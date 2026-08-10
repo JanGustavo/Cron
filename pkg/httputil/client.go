@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"syscall"
 	"time"
 )
 
@@ -17,8 +19,61 @@ type Result struct {
 	DurationMs int
 }
 
+// isPrivateIP verifica se o IP pertence a redes locais, privadas ou reservadas.
+func isPrivateIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
+		return true
+	}
+	// RFC 1918 (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) + RFC 4193 (IPv6 local)
+	if ip.IsPrivate() {
+		return true
+	}
+	return false
+}
+
 var client = &http.Client{
 	Timeout: 35 * time.Second, // margem acima do timeout máximo de 30s por job
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 3 {
+			return fmt.Errorf("httputil: limite de redirecionamentos (3) excedido")
+		}
+		return nil
+	},
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		DialContext: (&net.Dialer{
+			Timeout:   30 * time.Second,
+			KeepAlive: 30 * time.Second,
+			Control: func(network, address string, c syscall.RawConn) error {
+				host, _, err := net.SplitHostPort(address)
+				if err != nil {
+					return err
+				}
+				
+				ip := net.ParseIP(host)
+				if ip == nil {
+					// Hostname — resolve e valida todos os IPs resolvidos
+					ips, err := net.LookupIP(host)
+					if err != nil {
+						return fmt.Errorf("httputil: falha ao resolver hostname: %w", err)
+					}
+					for _, resolvedIP := range ips {
+						if isPrivateIP(resolvedIP) {
+							return fmt.Errorf("httputil SSRF: conexao bloqueada para IP local/privado: %s", resolvedIP)
+						}
+					}
+					return nil
+				}
+				
+				if isPrivateIP(ip) {
+					return fmt.Errorf("httputil SSRF: conexao bloqueada para IP local/privado: %s", ip)
+				}
+				return nil
+			},
+		}).DialContext,
+	},
 }
 
 // Execute dispara o HTTP request do job e retorna o resultado.
