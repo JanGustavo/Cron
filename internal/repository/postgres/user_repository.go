@@ -154,6 +154,12 @@ func (r *UserRepository) FindProjectByKeyHash(ctx context.Context, keyHash strin
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.FindProjectByKeyHash: %w", err)
 	}
+
+	// Atualiza o last_used_at de forma assíncrona para não onerar o tempo de resposta da API
+	go func(hash string) {
+		_, _ = r.db.Exec(`UPDATE api_keys SET last_used_at = NOW() WHERE key_hash = $1`, hash)
+	}(keyHash)
+
 	return p, nil
 }
 
@@ -179,17 +185,18 @@ func (r *UserRepository) FindUserByProjectID(ctx context.Context, projectID stri
 }
 
 type APIKey struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"projectId"`
-	Prefix    string    `json:"prefix"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         string     `json:"id"`
+	ProjectID  string     `json:"projectId"`
+	Prefix     string     `json:"prefix"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt"`
 }
 
 // FindAPIKeysByProjectID retorna todas as API Keys ativas vinculadas a um projeto.
 // O hash nunca é retornado por motivos de segurança.
 func (r *UserRepository) FindAPIKeysByProjectID(ctx context.Context, projectID string) ([]*APIKey, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, project_id, prefix, created_at FROM api_keys WHERE project_id = $1 ORDER BY created_at DESC`,
+		`SELECT id, project_id, prefix, created_at, last_used_at FROM api_keys WHERE project_id = $1 ORDER BY created_at DESC`,
 		projectID,
 	)
 	if err != nil {
@@ -200,7 +207,7 @@ func (r *UserRepository) FindAPIKeysByProjectID(ctx context.Context, projectID s
 	var keys []*APIKey
 	for rows.Next() {
 		k := &APIKey{}
-		if err := rows.Scan(&k.ID, &k.ProjectID, &k.Prefix, &k.CreatedAt); err != nil {
+		if err := rows.Scan(&k.ID, &k.ProjectID, &k.Prefix, &k.CreatedAt, &k.LastUsedAt); err != nil {
 			return nil, fmt.Errorf("UserRepository.FindAPIKeysByProjectID scan: %w", err)
 		}
 		keys = append(keys, k)
