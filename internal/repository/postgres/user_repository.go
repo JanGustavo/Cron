@@ -42,7 +42,7 @@ func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.Us
 func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, passwordHash, fullName, cpf string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO users (email, password_hash, full_name, cpf) VALUES ($1, $2, $3, $4) RETURNING id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), created_at`,
+		`INSERT INTO users (email, password_hash, full_name, cpf) VALUES ($1, $2, $3, NULLIF($4, '')) RETURNING id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), created_at`,
 		email, passwordHash, fullName, cpf,
 	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.CreatedAt)
 	if err != nil {
