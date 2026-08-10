@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/JanGustavo/Cron/internal/auth"
 )
 
 type AlertService struct{}
@@ -27,15 +30,14 @@ type alertPayload struct {
 	TriggeredAt string `json:"triggered_at"`
 }
 
-// Notify dispara o webhook de alerta de forma assíncrona.
-// Não bloqueia o Worker — roda em goroutine separada.
-func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastStatus int, lastBody string) {
+func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastStatus int, lastBody string, projectID, jwtSecret string) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		var req *http.Request
 		var err error
+		var payloadBytes []byte
 
 		// Se a URL do webhook for do ntfy (ex: ntfy.sh ou contiver ntfy)
 		if strings.Contains(webhookURL, "ntfy") {
@@ -43,6 +45,7 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 				"Job '%s' falhou %d vezes consecutivas.\nÚltimo Status HTTP: %d\nErro: %s",
 				jobName, failures, lastStatus, lastBody,
 			)
+			payloadBytes = []byte(message)
 			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, strings.NewReader(message))
 			if err == nil {
 				req.Header.Set("Content-Type", "text/plain")
@@ -58,6 +61,7 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 				),
 			}
 			data, _ := json.Marshal(discordBody)
+			payloadBytes = data
 			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
 			if err == nil {
 				req.Header.Set("Content-Type", "application/json")
@@ -70,6 +74,7 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 				),
 			}
 			data, _ := json.Marshal(slackBody)
+			payloadBytes = data
 			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
 			if err == nil {
 				req.Header.Set("Content-Type", "application/json")
@@ -91,6 +96,7 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 				log.Printf("AlertService.Notify: erro ao serializar payload: %v", errMarshal)
 				return
 			}
+			payloadBytes = data
 			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
 			if err == nil {
 				req.Header.Set("Content-Type", "application/json")
@@ -101,6 +107,17 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 			log.Printf("AlertService.Notify: erro ao criar request: %v", err)
 			return
 		}
+
+		// Assinatura de segurança de webhook (Stripe/Svix)
+		if projectID != "" && jwtSecret != "" && len(payloadBytes) > 0 {
+			timestamp := time.Now().Unix()
+			secret := auth.ComputeWebhookSecret(projectID, jwtSecret)
+			sig := auth.SignWebhookPayload(payloadBytes, timestamp, secret)
+
+			req.Header.Set("X-CronFlow-Timestamp", strconv.FormatInt(timestamp, 10))
+			req.Header.Set("X-CronFlow-Signature", sig)
+		}
+
 		req.Header.Set("User-Agent", "CronFlow-Alerter/1.0")
 
 		resp, err := http.DefaultClient.Do(req)

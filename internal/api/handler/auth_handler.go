@@ -47,10 +47,11 @@ type TokenResponse struct {
 }
 
 type ProjectResponse struct {
-	ID        string `json:"id"`
-	UserID    string `json:"userId"`
-	Name      string `json:"name"`
-	CreatedAt string `json:"createdAt"`
+	ID            string `json:"id"`
+	UserID        string `json:"userId"`
+	Name          string `json:"name"`
+	CreatedAt     string `json:"createdAt"`
+	WebhookSecret string `json:"webhookSecret,omitempty"`
 }
 
 type UserResponse struct {
@@ -233,10 +234,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		},
 		Projects: []ProjectResponse{
 			{
-				ID:        proj.ID,
-				UserID:    proj.UserID,
-				Name:      proj.Name,
-				CreatedAt: proj.CreatedAt.Format(time.RFC3339),
+				ID:            proj.ID,
+				UserID:        proj.UserID,
+				Name:          proj.Name,
+				CreatedAt:     proj.CreatedAt.Format(time.RFC3339),
+				WebhookSecret: auth.ComputeWebhookSecret(proj.ID, h.cfg.JWTSecret),
 			},
 		},
 		APIKey: apiKey, // Plain text mostrada apenas UMA vez no cadastro
@@ -300,10 +302,11 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		activeProjectID = projects[0].ID
 		for _, p := range projects {
 			projResponses = append(projResponses, ProjectResponse{
-				ID:        p.ID,
-				UserID:    p.UserID,
-				Name:      p.Name,
-				CreatedAt: p.CreatedAt.Format(time.RFC3339),
+				ID:            p.ID,
+				UserID:        p.UserID,
+				Name:          p.Name,
+				CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+				WebhookSecret: auth.ComputeWebhookSecret(p.ID, h.cfg.JWTSecret),
 			})
 		}
 	}

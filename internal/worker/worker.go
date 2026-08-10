@@ -23,6 +23,7 @@ type Worker struct {
 	executionRepo *postgres.ExecutionRepository
 	alertService  *service.AlertService
 	enqueuer      *queue.Enqueuer
+	jwtSecret     string
 }
 
 func New(
@@ -30,12 +31,14 @@ func New(
 	executionRepo *postgres.ExecutionRepository,
 	alertService *service.AlertService,
 	enqueuer *queue.Enqueuer,
+	jwtSecret string,
 ) *Worker {
 	return &Worker{
 		jobRepo:       jobRepo,
 		executionRepo: executionRepo,
 		alertService:  alertService,
 		enqueuer:      enqueuer,
+		jwtSecret:     jwtSecret,
 	}
 }
 
@@ -147,7 +150,7 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 				statusCode = *httpStatus
 			}
 			w.alertService.Notify(*updatedJob.WebhookAlertURL, j.ID, j.Name,
-				updatedJob.ConsecutiveFailures, statusCode, responseBody)
+				updatedJob.ConsecutiveFailures, statusCode, responseBody, updatedJob.ProjectID, w.jwtSecret)
 		}
 
 		// Se o job entrou em estado de falha (status = failing ou consecutiveFailures >= 3),

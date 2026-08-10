@@ -35,7 +35,7 @@ func main() {
 	defer enqueuer.Close()
 
 	// Worker handler
-	w := worker.New(jobRepo, executionRepo, alertService, enqueuer)
+	w := worker.New(jobRepo, executionRepo, alertService, enqueuer, cfg.JWTSecret)
 
 	// Servidor Asynq — consome a fila Redis
 	srv := asynq.NewServer(

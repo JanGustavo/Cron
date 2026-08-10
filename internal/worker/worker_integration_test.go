@@ -140,7 +140,7 @@ func TestWorkerIntegration(t *testing.T) {
 	}
 
 	// 6. Instancia o Worker e processa a task manualmente para isolar o teste
-	w := worker.New(jobRepo, execRepo, alertService, enqueuer)
+	w := worker.New(jobRepo, execRepo, alertService, enqueuer, "test-jwt-secret")
 
 	// Cria a task do Asynq manualmente simulando o consumo da fila
 	payloadBytes, _ := json.Marshal(queue.HTTPJobPayload{JobID: testJob.ID})
