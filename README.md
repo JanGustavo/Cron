@@ -189,6 +189,29 @@ cronflow/
 
 ---
 
+## 🔑 Autenticação e Telemetria de Execuções
+
+Implementamos fluxos de acesso modernos e uma arquitetura resiliente de monitoramento de status para evitar falhas silenciosas ou falso-positivos na interface.
+
+### 1. Fluxo de Autenticação Centralizado com OAuth2 (Google e GitHub)
+Além de chaves de API restritas por workspace, o CronFlow suporta autenticação direta via **Google OAuth 2.0** e **GitHub OAuth**.
+* **Configuração de Variáveis**: Definido via `.env` do backend através de chaves como `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GITHUB_CLIENT_ID` e `GITHUB_CLIENT_SECRET`.
+* **Redirecionamento Inteligente**: Os endpoints `/v1/auth/oauth/google` e `/v1/auth/oauth/github` redirecionam o cliente de forma segura. Após a validação do consentimento pelo provedor, o callback decodifica o perfil e extrai o nome completo (`FullName`) e e-mail.
+* **Auto-Provisionamento**: Se o usuário não existir na base, a conta é criada automaticamente com os dados do provedor, gerando um token JWT e vinculando um workspace padrão inicial.
+* **Sincronia do Nome no Perfil**: O backend responde a autenticação contendo a propriedade `fullName` estruturada na resposta JSON, permitindo que a interface web apresente o nome real da conta sem depender de preenchimentos locais de localStorage.
+
+### 2. Telemetria e Mapeamento de Status no Quadro Kanban
+Para garantir que a visualização do painel Kanban reflita fielmente o estado operacional das tarefas agendadas, integramos uma verificação determinística de execução:
+* **Detecção em Tempo Real (`last_run_status`)**: Ao listar ou buscar detalhes de tarefas, o repositório executa uma subquery SQL que avalia instantaneamente o status do último registro de execução (`executions`):
+  ```sql
+  (SELECT status FROM executions WHERE job_id = j.id ORDER BY triggered_at DESC LIMIT 1) AS last_run_status
+  ```
+  Se a última tentativa de execução falhou (ou estourou o tempo limite), o frontend envia o card para a coluna **Failed** (Falhou), prevenindo que jobs cronicamente com falhas fiquem listados como bem-sucedidos na coluna **Success**.
+* **Integridade dos Contadores de Erro**: A reativação ou atualização de status via movimentação (drag and drop) de cards apenas zera o contador de falhas consecutivas (`consecutive_failures`) caso o estado da tarefa mude de suspenso (`paused`/`failing`) para ativo (`active`). Arrastes comuns entre colunas de status ativo preservam o contador acumulado de erros temporários (`1/3` ou `2/3`).
+* **Logs Detalhados no Modal**: O modal de configuração de tarefa do Kanban lista os disparos recentes com seus códigos de retorno. Em caso de falha de conexão (DNS expirado, SSRF bloqueado), o erro de rede completo (`responseBody`) é renderizado imediatamente abaixo do log no modal e a duração de latência é mantida como `0ms` (em vez de omitida), permitindo depurações ágeis.
+
+---
+
 ## 🛡️ Mecanismos de Defesa e Segurança
 
 Como lidamos com dados sensíveis e exposição direta à internet, implementamos dois mecanismos vitais de segurança:

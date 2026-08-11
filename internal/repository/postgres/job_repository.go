@@ -63,10 +63,12 @@ func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error
 // Retorna nil, nil se não encontrado — o Service decide o que fazer com isso.
 func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, error) {
 	query := `
-		SELECT id, project_id, name, schedule, timezone, url, http_method,
-		       headers, payload, status, next_run_at, last_run_at, consecutive_failures,
-		       webhook_alert_url, next_job_id, tags, created_at, updated_at
-		FROM jobs WHERE id = $1`
+		SELECT j.id, j.project_id, j.name, j.schedule, j.timezone, j.url, j.http_method,
+		       j.headers, j.payload, j.status, j.next_run_at, j.last_run_at, j.consecutive_failures,
+		       j.webhook_alert_url, j.next_job_id, j.tags,
+		       (SELECT status FROM executions WHERE job_id = j.id ORDER BY triggered_at DESC LIMIT 1) AS last_run_status,
+		       j.created_at, j.updated_at
+		FROM jobs j WHERE j.id = $1`
 
 	j := &job.Job{}
 	var headers, payload []byte
@@ -74,7 +76,7 @@ func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, erro
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&j.ID, &j.ProjectID, &j.Name, &j.Schedule, &j.Timezone,
 		&j.URL, &j.HTTPMethod, &headers, &payload, &j.Status, &j.NextRunAt, &j.LastRunAt,
-		&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.NextJobID, &tags, &j.CreatedAt, &j.UpdatedAt,
+		&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.NextJobID, &tags, &j.LastRunStatus, &j.CreatedAt, &j.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -93,11 +95,13 @@ func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, erro
 // ListByProject retorna todos os jobs de um projeto, mais recentes primeiro.
 func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]*job.Job, error) {
 	query := `
-		SELECT id, project_id, name, schedule, timezone, url, http_method,
-		       headers, payload, status, next_run_at, last_run_at, consecutive_failures,
-		       webhook_alert_url, next_job_id, tags, created_at, updated_at
-		FROM jobs WHERE project_id = $1
-		ORDER BY created_at DESC`
+		SELECT j.id, j.project_id, j.name, j.schedule, j.timezone, j.url, j.http_method,
+		       j.headers, j.payload, j.status, j.next_run_at, j.last_run_at, j.consecutive_failures,
+		       j.webhook_alert_url, j.next_job_id, j.tags,
+		       (SELECT status FROM executions WHERE job_id = j.id ORDER BY triggered_at DESC LIMIT 1) AS last_run_status,
+		       j.created_at, j.updated_at
+		FROM jobs j WHERE j.project_id = $1
+		ORDER BY j.created_at DESC`
 
 	rows, err := r.db.QueryContext(ctx, query, projectID)
 	if err != nil {
@@ -113,7 +117,7 @@ func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]
 		err := rows.Scan(
 			&j.ID, &j.ProjectID, &j.Name, &j.Schedule, &j.Timezone,
 			&j.URL, &j.HTTPMethod, &headers, &payload, &j.Status, &j.NextRunAt, &j.LastRunAt,
-			&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.NextJobID, &tags, &j.CreatedAt, &j.UpdatedAt,
+			&j.ConsecutiveFailures, &j.WebhookAlertURL, &j.NextJobID, &tags, &j.LastRunStatus, &j.CreatedAt, &j.UpdatedAt,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("JobRepository.ListByProject scan: %w", err)
@@ -175,8 +179,13 @@ func (r *JobRepository) UpdateNextRun(ctx context.Context, id string, nextRun ti
 func (r *JobRepository) UpdateStatus(ctx context.Context, id string, status job.Status) error {
 	var err error
 	if status == job.StatusActive {
-		_, err = r.db.ExecContext(ctx,
-			`UPDATE jobs SET status = $1, consecutive_failures = 0, updated_at = NOW() WHERE id = $2`,
+		// Só reseta consecutive_failures se o status anterior era paused ou failing
+		_, err = r.db.ExecContext(ctx, `
+			UPDATE jobs SET
+				consecutive_failures = CASE WHEN status IN ('paused', 'failing') THEN 0 ELSE consecutive_failures END,
+				status = $1,
+				updated_at = NOW()
+			WHERE id = $2`,
 			status, id,
 		)
 	} else {

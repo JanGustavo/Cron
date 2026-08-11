@@ -41,6 +41,7 @@ type Job struct {
 	WebhookAlertURL     *string           `json:"webhook_alert_url,omitempty"` // URL para callbacks de sucesso/falha
 	NextJobID           *string           `json:"next_job_id,omitempty"`
 	Tags                []string          `json:"tags,omitempty"`
+	LastRunStatus       *string           `json:"last_run_status,omitempty"`
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
 }

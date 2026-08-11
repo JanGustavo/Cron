@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -62,6 +63,7 @@ type UserResponse struct {
 	ID        string `json:"id"`
 	Email     string `json:"email"`
 	Plan      string `json:"plan"`
+	FullName  string `json:"fullName,omitempty"`
 	CreatedAt string `json:"createdAt"`
 }
 
@@ -234,6 +236,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 			ID:        u.ID,
 			Email:     u.Email,
 			Plan:      string(u.Plan),
+			FullName:  u.FullName,
 			CreatedAt: u.CreatedAt.Format(time.RFC3339),
 		},
 		Projects: []ProjectResponse{
@@ -283,6 +286,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// 1. Busca usuário
 	u, err := h.userRepo.FindByEmail(r.Context(), req.Email)
 	if err != nil {
+		log.Printf("[Auth] Erro ao buscar usuário %s: %v", req.Email, err)
 		writeError(w, http.StatusInternalServerError, "erro ao buscar usuário")
 		return
 	}
@@ -300,6 +304,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// 3. Busca projetos do usuário
 	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 	if err != nil {
+		log.Printf("[Auth] Erro ao buscar projetos para usuário %s (%s): %v", u.Email, u.ID, err)
 		writeError(w, http.StatusInternalServerError, "erro ao buscar projetos")
 		return
 	}
@@ -344,6 +349,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			ID:        u.ID,
 			Email:     u.Email,
 			Plan:      string(u.Plan),
+			FullName:  u.FullName,
 			CreatedAt: u.CreatedAt.Format(time.RFC3339),
 		},
 		Projects: projResponses,
@@ -592,15 +598,24 @@ func (h *AuthHandler) OAuthGoogleCallback(w http.ResponseWriter, r *http.Request
 			"grant_type":    {"authorization_code"},
 		})
 		if err != nil {
+			log.Printf("[OAuth Google] Erro na requisição de token: %v", err)
 			http.Redirect(w, r, h.cfg.FrontendURL+"/?oauth_error=token_exchange_failed", http.StatusTemporaryRedirect)
 			return
 		}
 		defer resp.Body.Close()
 
+		bodyBytes, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			log.Printf("[OAuth Google] Erro ao ler resposta do token: %v", readErr)
+			http.Redirect(w, r, h.cfg.FrontendURL+"/?oauth_error=token_decode_failed", http.StatusTemporaryRedirect)
+			return
+		}
+
 		var tokenResp struct {
 			AccessToken string `json:"access_token"`
 		}
-		if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil || tokenResp.AccessToken == "" {
+		if err := json.Unmarshal(bodyBytes, &tokenResp); err != nil || tokenResp.AccessToken == "" {
+			log.Printf("[OAuth Google] Falha ao decodificar token. Status: %d, Body: %s", resp.StatusCode, string(bodyBytes))
 			http.Redirect(w, r, h.cfg.FrontendURL+"/?oauth_error=token_decode_failed", http.StatusTemporaryRedirect)
 			return
 		}
