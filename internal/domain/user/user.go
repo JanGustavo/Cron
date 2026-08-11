@@ -16,13 +16,18 @@ const (
 )
 
 type User struct {
-	ID           string
-	Email        string
-	PasswordHash string
-	Plan         Plan
-	FullName     string
-	CPF          string
-	CreatedAt    time.Time
+	ID                 string
+	Email              string
+	PasswordHash       string
+	Plan               Plan
+	FullName           string
+	CPF                string
+	EmailAlertsEnabled bool
+	DailyDigestEnabled bool
+	Timezone           string
+	DigestHour         int
+	LastDigestSentAt   *time.Time
+	CreatedAt          time.Time
 }
 
 

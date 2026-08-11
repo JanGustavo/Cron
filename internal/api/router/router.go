@@ -50,6 +50,12 @@ func New(
 
 		r.Post("/v1/agent/chat", agentHandler.Chat)
 		r.Post("/v1/projects/webhook-secret/rotate", authHandler.RotateWebhookSecret)
+		r.Get("/v1/users/profile", authHandler.GetProfile)
+		r.Put("/v1/users/profile", authHandler.UpdateProfile)
+		r.Post("/v1/projects", authHandler.CreateProject)
+		r.Put("/v1/projects/{id}", authHandler.UpdateProject)
+		r.Delete("/v1/projects/{id}", authHandler.DeleteProject)
+		r.Post("/v1/projects/{id}/switch", authHandler.SwitchProject)
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
 		r.Get("/v1/executions", executionHandler.ListGlobal)
 		r.Get("/v1/metrics/queue", metricsHandler.QueueMetrics)

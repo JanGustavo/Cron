@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/JanGustavo/Cron/internal/domain/execution"
 )
@@ -171,4 +172,61 @@ func (r *ExecutionRepository) DeleteOlderThan(ctx context.Context, days int) (in
 	}
 	affected, _ := result.RowsAffected()
 	return affected, nil
+}
+
+type FailedJobDigest struct {
+	JobID               string
+	JobName             string
+	Schedule            string
+	URL                 string
+	HTTPMethod          string
+	ConsecutiveFailures int
+	FailureCount        int
+	LastHTTPStatus      int
+	LastResponseBody    string
+	LastTriggeredAt     string
+}
+
+func (r *ExecutionRepository) GetFailedExecutionsForUserLast24Hours(ctx context.Context, userID string) ([]*FailedJobDigest, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT 
+			j.id as job_id, 
+			j.name as job_name, 
+			j.schedule, 
+			j.url, 
+			j.http_method, 
+			j.consecutive_failures,
+			COUNT(e.id) as failure_count,
+			COALESCE((SELECT http_status FROM executions WHERE job_id = j.id AND status = 'failed' ORDER BY triggered_at DESC LIMIT 1), 0) as last_http_status,
+			COALESCE((SELECT response_body FROM executions WHERE job_id = j.id AND status = 'failed' ORDER BY triggered_at DESC LIMIT 1), '') as last_response_body,
+			(SELECT triggered_at FROM executions WHERE job_id = j.id AND status = 'failed' ORDER BY triggered_at DESC LIMIT 1) as last_triggered_at
+		FROM jobs j
+		INNER JOIN projects p ON p.id = j.project_id
+		INNER JOIN executions e ON e.job_id = j.id
+		WHERE p.user_id = $1
+		  AND e.status = 'failed'
+		  AND e.triggered_at >= NOW() - INTERVAL '24 hours'
+		GROUP BY j.id, j.name, j.schedule, j.url, j.http_method, j.consecutive_failures
+		ORDER BY last_triggered_at DESC`,
+		userID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("ExecutionRepository.GetFailedExecutionsForUserLast24Hours: %w", err)
+	}
+	defer rows.Close()
+
+	var digests []*FailedJobDigest
+	for rows.Next() {
+		d := &FailedJobDigest{}
+		var lastTriggeredAt time.Time
+		if err := rows.Scan(
+			&d.JobID, &d.JobName, &d.Schedule, &d.URL, &d.HTTPMethod,
+			&d.ConsecutiveFailures, &d.FailureCount, &d.LastHTTPStatus, &d.LastResponseBody, &lastTriggeredAt,
+		); err != nil {
+			return nil, fmt.Errorf("ExecutionRepository.GetFailedExecutionsForUserLast24Hours scan: %w", err)
+		}
+		d.LastTriggeredAt = lastTriggeredAt.Format(time.RFC3339)
+		digests = append(digests, d)
+	}
+	return digests, nil
 }

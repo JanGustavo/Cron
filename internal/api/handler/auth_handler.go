@@ -869,3 +869,409 @@ func (h *AuthHandler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request
 		"webhookSecret": newSecret,
 	})
 }
+
+type UpdateProfileRequest struct {
+	EmailAlertsEnabled bool   `json:"email_alerts_enabled"`
+	DailyDigestEnabled bool   `json:"daily_digest_enabled"`
+	Timezone           string `json:"timezone"`
+	DigestHour         int    `json:"digest_hour"`
+}
+
+type ProfileResponse struct {
+	ID                 string            `json:"id"`
+	Email              string            `json:"email"`
+	Plan               string            `json:"plan"`
+	FullName           string            `json:"fullName"`
+	CPF                string            `json:"cpf"`
+	EmailAlertsEnabled bool              `json:"emailAlertsEnabled"`
+	DailyDigestEnabled bool              `json:"dailyDigestEnabled"`
+	Timezone           string            `json:"timezone"`
+	DigestHour         int               `json:"digestHour"`
+	CreatedAt          string            `json:"createdAt"`
+	TotalJobsCreated   int               `json:"totalJobsCreated"`
+	Projects           []ProjectResponse `json:"projects"`
+}
+
+// GetProfile — GET /v1/users/profile
+// @Summary Obter perfil do usuário
+// @Description Retorna o perfil completo do desenvolvedor logado, incluindo preferências de e-mail e daily digest.
+// @Tags Usuário
+// @Produce json
+// @Success 200 {object} ProfileResponse "Perfil carregado com sucesso"
+// @Failure 401 {object} map[string]string "Não autorizado"
+// @Failure 500 {object} map[string]string "Erro interno"
+// @Security ApiKeyAuth
+// @Router /v1/users/profile [get]
+func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "não autorizado")
+		return
+	}
+
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao obter perfil do usuário")
+		return
+	}
+	if u == nil {
+		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		return
+	}
+
+	totalJobsCreated, err := h.userRepo.CountAllJobsByUserID(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao contar jobs do usuário")
+		return
+	}
+
+	userProjects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao obter projetos do usuário")
+		return
+	}
+
+	projsResp := make([]ProjectResponse, len(userProjects))
+	for i, p := range userProjects {
+		webhookSec := ""
+		if p.WebhookSecret != nil {
+			webhookSec = *p.WebhookSecret
+		} else {
+			webhookSec = auth.ComputeWebhookSecret(p.ID, h.cfg.JWTSecret)
+		}
+
+		projsResp[i] = ProjectResponse{
+			ID:            p.ID,
+			UserID:        p.UserID,
+			Name:          p.Name,
+			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+			WebhookSecret: webhookSec,
+		}
+	}
+
+	resp := ProfileResponse{
+		ID:                 u.ID,
+		Email:              u.Email,
+		Plan:               string(u.Plan),
+		FullName:           u.FullName,
+		CPF:                u.CPF,
+		EmailAlertsEnabled: u.EmailAlertsEnabled,
+		DailyDigestEnabled: u.DailyDigestEnabled,
+		Timezone:           u.Timezone,
+		DigestHour:         u.DigestHour,
+		CreatedAt:          u.CreatedAt.Format(time.RFC3339),
+		TotalJobsCreated:   totalJobsCreated,
+		Projects:           projsResp,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// UpdateProfile — PUT /v1/users/profile
+// @Summary Atualizar preferências do usuário
+// @Description Atualiza as configurações de notificação de e-mail e daily digest do usuário.
+// @Tags Usuário
+// @Accept json
+// @Produce json
+// @Param body body UpdateProfileRequest true "Preferências a serem atualizadas"
+// @Success 200 {object} map[string]string "Preferências salvas com sucesso"
+// @Failure 401 {object} map[string]string "Não autorizado"
+// @Failure 500 {object} map[string]string "Erro interno"
+// @Security ApiKeyAuth
+// @Router /v1/users/profile [put]
+func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "não autorizado")
+		return
+	}
+
+	var req UpdateProfileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
+		return
+	}
+
+	// Se a timezone estiver vazia, define padrão
+	if req.Timezone == "" {
+		req.Timezone = "America/Sao_Paulo"
+	}
+	// Valida se timezone existe
+	if _, err := time.LoadLocation(req.Timezone); err != nil {
+		writeError(w, http.StatusBadRequest, "timezone inválida")
+		return
+	}
+	// Valida hora do digest
+	if req.DigestHour < 0 || req.DigestHour > 23 {
+		writeError(w, http.StatusBadRequest, "digest_hour deve ser entre 0 e 23")
+		return
+	}
+
+	// Busca o usuário para verificar
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		return
+	}
+
+	// Se for plano free, não pode ativar email_alerts_enabled (alertas imediatos)
+	if u.Plan == "free" && req.EmailAlertsEnabled {
+		writeError(w, http.StatusBadRequest, "alertas imediatos por e-mail estão disponíveis apenas no plano PRO")
+		return
+	}
+
+	err = h.userRepo.UpdateEmailPreferences(r.Context(), u.ID, req.EmailAlertsEnabled, req.DailyDigestEnabled, req.Timezone, req.DigestHour)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao atualizar preferências")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "preferências atualizadas com sucesso",
+	})
+}
+
+type CreateProjectRequest struct {
+	Name string `json:"name"`
+}
+
+// CreateProject — POST /v1/projects
+// @Summary Criar novo projeto (Workspace)
+// @Description Cria um novo workspace/projeto para o usuário autenticado. Apenas usuários do plano PRO/Pago podem possuir múltiplos projetos.
+// @Tags Projetos
+// @Accept json
+// @Produce json
+// @Param body body CreateProjectRequest true "Dados do projeto"
+// @Success 201 {object} map[string]any "Projeto criado com sucesso"
+// @Failure 400 {object} map[string]string "Dados inválidos"
+// @Failure 401 {object} map[string]string "Não autorizado"
+// @Failure 403 {object} map[string]string "Limite de projetos atingido"
+// @Failure 500 {object} map[string]string "Erro interno"
+// @Security ApiKeyAuth
+// @Router /v1/projects [post]
+func (h *AuthHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
+	projContext := middleware.ProjectFromContext(r.Context())
+	if projContext == nil {
+		writeError(w, http.StatusUnauthorized, "não autorizado")
+		return
+	}
+
+	var req CreateProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
+		return
+	}
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "o nome do projeto não pode ser vazio")
+		return
+	}
+
+	// Busca o usuário correspondente para validar o plano
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		return
+	}
+
+	// Limita os projetos (máximo de 5 para PRO, máximo de 1 para Free/Starter)
+	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao verificar projetos existentes")
+		return
+	}
+
+	if u.Plan == "paid" {
+		if len(projects) >= 5 {
+			writeError(w, http.StatusForbidden, "limite de 5 projetos atingido para o plano PRO")
+			return
+		}
+	} else {
+		if len(projects) >= 1 {
+			writeError(w, http.StatusForbidden, "apenas usuários do plano PRO podem criar múltiplos projetos")
+			return
+		}
+	}
+
+	newProj, err := h.userRepo.CreateProject(r.Context(), u.ID, req.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao criar projeto")
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, newProj)
+}
+
+type UpdateProjectRequest struct {
+	Name string `json:"name"`
+}
+
+// UpdateProject — PUT /v1/projects/{id}
+func (h *AuthHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
+	projContext := middleware.ProjectFromContext(r.Context())
+	if projContext == nil {
+		writeError(w, http.StatusUnauthorized, "não autorizado")
+		return
+	}
+
+	projID := chi.URLParam(r, "id")
+	if projID == "" {
+		writeError(w, http.StatusBadRequest, "id do projeto é obrigatório")
+		return
+	}
+
+	var req UpdateProjectRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
+		return
+	}
+
+	if req.Name == "" {
+		writeError(w, http.StatusBadRequest, "o nome do projeto não pode ser vazio")
+		return
+	}
+
+	// Busca o usuário logado
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		return
+	}
+
+	// Busca o dono do projeto a ser editado
+	owner, err := h.userRepo.FindUserByProjectID(r.Context(), projID)
+	if err != nil || owner == nil {
+		writeError(w, http.StatusNotFound, "projeto não encontrado")
+		return
+	}
+
+	if owner.ID != u.ID {
+		writeError(w, http.StatusForbidden, "acesso negado")
+		return
+	}
+
+	err = h.userRepo.UpdateProjectName(r.Context(), projID, req.Name)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao atualizar projeto")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "projeto atualizado com sucesso",
+	})
+}
+
+// DeleteProject — DELETE /v1/projects/{id}
+func (h *AuthHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
+	projContext := middleware.ProjectFromContext(r.Context())
+	if projContext == nil {
+		writeError(w, http.StatusUnauthorized, "não autorizado")
+		return
+	}
+
+	projID := chi.URLParam(r, "id")
+	if projID == "" {
+		writeError(w, http.StatusBadRequest, "id do projeto é obrigatório")
+		return
+	}
+
+	// Busca o usuário logado
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		return
+	}
+
+	// Busca o dono do projeto a ser deletado
+	owner, err := h.userRepo.FindUserByProjectID(r.Context(), projID)
+	if err != nil || owner == nil {
+		writeError(w, http.StatusNotFound, "projeto não encontrado")
+		return
+	}
+
+	if owner.ID != u.ID {
+		writeError(w, http.StatusForbidden, "acesso negado")
+		return
+	}
+
+	// Não deixa excluir o último projeto do usuário
+	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao verificar projetos")
+		return
+	}
+	if len(projects) <= 1 {
+		writeError(w, http.StatusForbidden, "não é possível excluir seu único projeto ativo")
+		return
+	}
+
+	err = h.userRepo.DeleteProject(r.Context(), projID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao excluir projeto")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"message": "projeto excluído com sucesso",
+	})
+}
+
+// SwitchProject — POST /v1/projects/{id}/switch
+// @Summary Alternar projeto ativo
+// @Description Retorna um novo token JWT assinado para o projeto solicitado, validando que pertence ao mesmo usuário.
+// @Tags Projetos
+// @Produce json
+// @Param id path string true "ID do projeto de destino"
+// @Success 200 {object} map[string]string "Novo token gerado"
+// @Failure 400 {object} map[string]string "ID inválido"
+// @Failure 401 {object} map[string]string "Não autorizado"
+// @Failure 403 {object} map[string]string "Acesso negado ao projeto"
+// @Failure 500 {object} map[string]string "Erro interno"
+// @Security ApiKeyAuth
+// @Router /v1/projects/{id}/switch [post]
+func (h *AuthHandler) SwitchProject(w http.ResponseWriter, r *http.Request) {
+	projContext := middleware.ProjectFromContext(r.Context())
+	if projContext == nil {
+		writeError(w, http.StatusUnauthorized, "não autorizado")
+		return
+	}
+
+	projID := chi.URLParam(r, "id")
+	if projID == "" {
+		writeError(w, http.StatusBadRequest, "id do projeto é obrigatório")
+		return
+	}
+
+	// Busca o usuário logado
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		return
+	}
+
+	// Busca o dono do projeto a ser alternado
+	owner, err := h.userRepo.FindUserByProjectID(r.Context(), projID)
+	if err != nil || owner == nil {
+		writeError(w, http.StatusNotFound, "projeto não encontrado")
+		return
+	}
+
+	if owner.ID != u.ID {
+		writeError(w, http.StatusForbidden, "acesso negado")
+		return
+	}
+
+	// Gera um novo token JWT com o novo projID
+	duration := 24 * time.Hour
+	jwtToken, err := auth.GenerateToken(u.ID, u.Email, projID, string(u.Plan), h.cfg.JWTSecret, duration)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao gerar novo token")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"token": jwtToken,
+	})
+}
+
+

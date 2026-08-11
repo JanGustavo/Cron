@@ -13,6 +13,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/repository/redis"
 	"github.com/JanGustavo/Cron/internal/scheduler"
+	"github.com/JanGustavo/Cron/internal/service"
 )
 
 func main() {
@@ -33,7 +34,10 @@ func main() {
 	jobRepo := postgres.NewJobRepository(db)
 	executionRepo := postgres.NewExecutionRepository(db)
 
-	sched := scheduler.New(jobRepo, executionRepo, enqueuer, lockRepo, 30*time.Second)
+	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
+	alertService := service.NewAlertService(db, mailService)
+
+	sched := scheduler.New(jobRepo, executionRepo, alertService, enqueuer, lockRepo, 30*time.Second)
 
 	// Graceful shutdown: Ctrl+C ou SIGTERM encerra o loop limpo
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

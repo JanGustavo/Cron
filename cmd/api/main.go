@@ -45,7 +45,17 @@ func main() {
 	defer db.Close()
 
 	// Garante DDL do CPF e Nome Completo nos bancos local e prod
-	_, _ = db.Exec(`ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf VARCHAR(11) UNIQUE; ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT; ALTER TABLE projects ADD COLUMN IF NOT EXISTS webhook_secret TEXT; ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;`)
+	_, _ = db.Exec(`
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf VARCHAR(11) UNIQUE; 
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT; 
+		ALTER TABLE projects ADD COLUMN IF NOT EXISTS webhook_secret TEXT; 
+		ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS email_alerts_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_digest_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) NOT NULL DEFAULT 'America/Sao_Paulo';
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_hour INT NOT NULL DEFAULT 18;
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS last_digest_sent_at TIMESTAMPTZ;
+	`)
 
 	// Repositories
 	userRepo := postgres.NewUserRepository(db)

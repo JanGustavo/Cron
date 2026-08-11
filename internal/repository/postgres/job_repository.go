@@ -66,7 +66,7 @@ func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, erro
 		SELECT j.id, j.project_id, j.name, j.schedule, j.timezone, j.url, j.http_method,
 		       j.headers, j.payload, j.status, j.next_run_at, j.last_run_at, j.consecutive_failures,
 		       j.webhook_alert_url, j.next_job_id, j.tags,
-		       (SELECT status FROM executions WHERE job_id = j.id ORDER BY triggered_at DESC LIMIT 1) AS last_run_status,
+		       CASE WHEN j.last_run_at IS NULL THEN NULL ELSE (SELECT status FROM executions WHERE job_id = j.id ORDER BY triggered_at DESC LIMIT 1) END AS last_run_status,
 		       j.created_at, j.updated_at
 		FROM jobs j WHERE j.id = $1`
 
@@ -98,7 +98,7 @@ func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]
 		SELECT j.id, j.project_id, j.name, j.schedule, j.timezone, j.url, j.http_method,
 		       j.headers, j.payload, j.status, j.next_run_at, j.last_run_at, j.consecutive_failures,
 		       j.webhook_alert_url, j.next_job_id, j.tags,
-		       (SELECT status FROM executions WHERE job_id = j.id ORDER BY triggered_at DESC LIMIT 1) AS last_run_status,
+		       CASE WHEN j.last_run_at IS NULL THEN NULL ELSE (SELECT status FROM executions WHERE job_id = j.id ORDER BY triggered_at DESC LIMIT 1) END AS last_run_status,
 		       j.created_at, j.updated_at
 		FROM jobs j WHERE j.project_id = $1
 		ORDER BY j.created_at DESC`
@@ -291,3 +291,19 @@ func (r *JobRepository) Update(ctx context.Context, j *job.Job) error {
 	}
 	return nil
 }
+
+// ReactivateJob ativa o job, recalcula next_run_at, reseta falhas consecutivas e limpa last_run_at.
+func (r *JobRepository) ReactivateJob(ctx context.Context, id string, nextRun time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+		UPDATE jobs SET
+			status = 'active',
+			next_run_at = $1,
+			last_run_at = NULL,
+			consecutive_failures = 0,
+			updated_at = NOW()
+		WHERE id = $2`,
+		nextRun, id,
+	)
+	return err
+}
+

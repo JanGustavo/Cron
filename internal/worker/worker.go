@@ -153,6 +153,15 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 				updatedJob.ConsecutiveFailures, statusCode, responseBody, updatedJob.ProjectID, w.jwtSecret)
 		}
 
+		// Dispara e-mail de alerta imediato se atingiu 3 falhas consecutivas (para plano paid)
+		if updatedJob != nil && updatedJob.ConsecutiveFailures == 3 {
+			statusCode := 0
+			if httpStatus != nil {
+				statusCode = *httpStatus
+			}
+			w.alertService.NotifyEmail(j.ID, j.Name, updatedJob.ConsecutiveFailures, statusCode, responseBody, updatedJob.ProjectID)
+		}
+
 		// Se o job entrou em estado de falha (status = failing ou consecutiveFailures >= 3),
 		// devemos instruir o Asynq a NÃO fazer mais retries dessa execução!
 		if updatedJob != nil && (updatedJob.Status == job.StatusFailing || updatedJob.ConsecutiveFailures >= 3) {

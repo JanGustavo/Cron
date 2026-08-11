@@ -9,6 +9,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/repository/redis"
+	"github.com/JanGustavo/Cron/internal/service"
 	"github.com/JanGustavo/Cron/pkg/cronparser"
 )
 
@@ -24,6 +25,7 @@ import (
 type Scheduler struct {
 	jobRepo       *postgres.JobRepository
 	executionRepo *postgres.ExecutionRepository
+	alertService  *service.AlertService
 	enqueuer      *queue.Enqueuer
 	lockRepo      *redis.LockRepository
 	interval      time.Duration
@@ -33,6 +35,7 @@ type Scheduler struct {
 func New(
 	jobRepo *postgres.JobRepository,
 	executionRepo *postgres.ExecutionRepository,
+	alertService *service.AlertService,
 	enqueuer *queue.Enqueuer,
 	lockRepo *redis.LockRepository,
 	interval time.Duration,
@@ -40,6 +43,7 @@ func New(
 	return &Scheduler{
 		jobRepo:       jobRepo,
 		executionRepo: executionRepo,
+		alertService:  alertService,
 		enqueuer:      enqueuer,
 		lockRepo:      lockRepo,
 		interval:      interval,
@@ -70,6 +74,10 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 // tick é a unidade de trabalho: busca jobs elegíveis, enfileira e atualiza next_run.
 func (s *Scheduler) tick(ctx context.Context) {
+	if s.alertService != nil {
+		s.alertService.ProcessDailyDigests(ctx)
+	}
+
 	now := time.Now().UTC()
 
 	if s.lockRepo != nil {

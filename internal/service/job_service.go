@@ -147,15 +147,16 @@ func (s *JobService) UpdateStatus(ctx context.Context, id, projectID string, sta
 		return err
 	}
 
-	// Ao reativar: recalcula next_run_at a partir de agora
-	if status == job.StatusActive && (j.Status == job.StatusPaused || j.Status == job.StatusFailing) {
+	// Ao reativar / agendar: recalcula next_run_at a partir de agora, reseta falhas e limpa last_run_at
+	if status == job.StatusActive {
 		nextRun, err := cronparser.NextRun(j.Schedule, j.Timezone, time.Now())
 		if err != nil {
 			return fmt.Errorf("JobService.UpdateStatus: %w", err)
 		}
-		if err := s.jobRepo.UpdateNextRun(ctx, id, nextRun); err != nil {
+		if err := s.jobRepo.ReactivateJob(ctx, id, nextRun); err != nil {
 			return fmt.Errorf("JobService.UpdateStatus: %w", err)
 		}
+		return nil
 	}
 
 	return s.jobRepo.UpdateStatus(ctx, id, status)
