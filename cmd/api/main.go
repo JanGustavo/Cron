@@ -71,7 +71,7 @@ func main() {
 	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
 
 	// Handlers
-	healthHandler := handler.NewHealthHandler(db, cfg.RedisURL)
+	healthHandler := handler.NewHealthHandler(db, cfg.RedisURL, cfg.AppEnv, cfg.SchedulerInterval, cfg.WorkerConcurrency)
 	jobHandler := handler.NewJobHandler(jobService)
 	executionHandler := handler.NewExecutionHandler(jobService, executionRepo)
 	authHandler := handler.NewAuthHandler(userRepo, mailService, cfg)

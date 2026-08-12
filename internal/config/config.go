@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/joho/godotenv"
 )
@@ -44,7 +45,7 @@ func Load() *Config {
 		log.Println("Nenhum .env file encontrado, lendo variáveis de ambiente")
 	}
 
-	return &Config{
+	c := &Config{
 		AppEnv:             getEnv("APP_ENV", "development"),
 		Port:               getEnv("PORT", "8080"),
 		DatabaseURL:        mustGetEnv("DATABASE_URL"),
@@ -68,6 +69,40 @@ func Load() *Config {
 		SchedulerInterval:  getEnv("SCHEDULER_INTERVAL", "30s"),
 		WorkerConcurrency:  getEnvAsInt("WORKER_CONCURRENCY", 50),
 	}
+
+	// -------------------------------------------------------------
+	// 🔒 VALIDAÇÕES DE STARTUP (ESTABILIZAÇÃO & SEGURANÇA)
+	// -------------------------------------------------------------
+
+	// 1. Previne JWT_SECRET fraco ou de fallback em produção (P0)
+	if c.AppEnv == "production" {
+		if c.JWTSecret == "cronflow_jwt_secret_fallback_key_2026_xyz" || len(c.JWTSecret) < 32 {
+			log.Fatalf("FATAL: JWT_SECRET não está configurado de forma segura em ambiente de produção (deve ter pelo menos 32 caracteres).")
+		}
+	}
+
+	// 2. Valida limites para SCHEDULER_INTERVAL (deve ser entre 1s e 1h) (P1)
+	if c.SchedulerInterval != "" {
+		if d, err := time.ParseDuration(c.SchedulerInterval); err == nil {
+			if d < 1*time.Second || d > 1*time.Hour {
+				log.Printf("WARNING: SCHEDULER_INTERVAL=%s fora da faixa de segurança (1s a 1h). Usando fallback=30s.", c.SchedulerInterval)
+				c.SchedulerInterval = "30s"
+			}
+		} else {
+			log.Printf("WARNING: SCHEDULER_INTERVAL=%s formato inválido. Usando fallback=30s.", c.SchedulerInterval)
+			c.SchedulerInterval = "30s"
+		}
+	} else {
+		c.SchedulerInterval = "30s"
+	}
+
+	// 3. Valida limites para WORKER_CONCURRENCY (deve ser entre 1 e 500) (P1)
+	if c.WorkerConcurrency < 1 || c.WorkerConcurrency > 500 {
+		log.Printf("WARNING: WORKER_CONCURRENCY=%d fora da faixa de segurança (1 a 500). Usando fallback=50.", c.WorkerConcurrency)
+		c.WorkerConcurrency = 50
+	}
+
+	return c
 }
 
 // getEnv retorna o valor da variável de ambiente ou um fallback se não estiver definida.

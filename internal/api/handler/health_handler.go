@@ -9,12 +9,21 @@ import (
 )
 
 type HealthHandler struct {
-	db       *sql.DB
-	redisURL string
+	db                *sql.DB
+	redisURL          string
+	appEnv            string
+	schedulerInterval string
+	workerConcurrency int
 }
 
-func NewHealthHandler(db *sql.DB, redisURL string) *HealthHandler {
-	return &HealthHandler{db: db, redisURL: redisURL}
+func NewHealthHandler(db *sql.DB, redisURL string, appEnv, schedulerInterval string, workerConcurrency int) *HealthHandler {
+	return &HealthHandler{
+		db:                db,
+		redisURL:          redisURL,
+		appEnv:            appEnv,
+		schedulerInterval: schedulerInterval,
+		workerConcurrency: workerConcurrency,
+	}
 }
 
 var (
@@ -57,11 +66,16 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(map[string]string{
+	json.NewEncoder(w).Encode(map[string]any{
 		"status":    status,
 		"postgres":  postgresStatus,
 		"redis":     redisStatus,
 		"version":   Version,
 		"buildTime": BuildTime,
+		"config": map[string]any{
+			"appEnv":            h.appEnv,
+			"schedulerInterval": h.schedulerInterval,
+			"workerConcurrency": h.workerConcurrency,
+		},
 	})
 }
