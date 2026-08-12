@@ -77,7 +77,8 @@ func TestWorkerIntegration(t *testing.T) {
 	jobRepo := postgres.NewJobRepository(db)
 	execRepo := postgres.NewExecutionRepository(db)
 	userRepo := postgres.NewUserRepository(db)
-	alertService := service.NewAlertService(db)
+	mailService := service.NewMailService("", 587, "", "", "")
+	alertService := service.NewAlertService(db, mailService)
 
 	// Inicializa enqueuer
 	enqueuer := queue.NewEnqueuer(redisURL)
