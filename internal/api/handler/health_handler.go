@@ -46,10 +46,20 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 	}
 
 	redisStatus := "up"
-	opt, err := redis.ParseURL(h.redisURL)
-	if err != nil {
-		redisStatus = "down"
+	var opt *redis.Options
+	var err error
+	if len(h.redisURL) >= 8 && h.redisURL[:8] == "redis://" {
+		opt, err = redis.ParseURL(h.redisURL)
+		if err != nil {
+			redisStatus = "down"
+		}
 	} else {
+		opt = &redis.Options{
+			Addr: h.redisURL,
+		}
+	}
+
+	if redisStatus == "up" {
 		rdb := redis.NewClient(opt)
 		if err := rdb.Ping(r.Context()).Err(); err != nil {
 			redisStatus = "down"
