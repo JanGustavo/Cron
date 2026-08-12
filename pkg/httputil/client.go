@@ -81,6 +81,7 @@ var client = &http.Client{
 	},
 	Transport: &http.Transport{
 		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 100,
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 10 * time.Second,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {

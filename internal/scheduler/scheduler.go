@@ -81,10 +81,19 @@ func (s *Scheduler) tick(ctx context.Context) {
 	now := time.Now().UTC()
 
 	if s.lockRepo != nil {
-		epochWindow := now.Unix() / 30 // bloco de tempo de 30s
+		intervalSeconds := int64(s.interval.Seconds())
+		if intervalSeconds <= 0 {
+			intervalSeconds = 30
+		}
+		epochWindow := now.Unix() / intervalSeconds
 		lockKey := fmt.Sprintf("cronflow:scheduler:lock:%d", epochWindow)
 
-		acquired, err := s.lockRepo.Acquire(ctx, lockKey, 40*time.Second)
+		lockTTL := s.interval + 10*time.Second
+		if lockTTL < 15*time.Second {
+			lockTTL = 15 * time.Second // garante um TTL mínimo razoável no Redis
+		}
+
+		acquired, err := s.lockRepo.Acquire(ctx, lockKey, lockTTL)
 		if err != nil {
 			log.Printf("Scheduler.tick: erro ao obter lock no Redis: %v", err)
 		} else if !acquired {
