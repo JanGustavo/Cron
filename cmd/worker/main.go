@@ -42,7 +42,7 @@ func main() {
 	srv := asynq.NewServer(
 		asynq.RedisClientOpt{Addr: cfg.RedisURL},
 		asynq.Config{
-			Concurrency: 50,
+			Concurrency: cfg.WorkerConcurrency,
 			Queues: map[string]int{
 				"critical": 6, // plano pago (futuro)
 				"default":  3, // plano free

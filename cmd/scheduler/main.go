@@ -37,7 +37,16 @@ func main() {
 	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
 	alertService := service.NewAlertService(db, mailService)
 
-	sched := scheduler.New(jobRepo, executionRepo, alertService, enqueuer, lockRepo, 30*time.Second)
+	schedInterval := 30 * time.Second
+	if cfg.SchedulerInterval != "" {
+		if d, err := time.ParseDuration(cfg.SchedulerInterval); err == nil {
+			schedInterval = d
+		} else {
+			log.Printf("Scheduler: formato de SCHEDULER_INTERVAL inválido '%s', usando fallback 30s", cfg.SchedulerInterval)
+		}
+	}
+
+	sched := scheduler.New(jobRepo, executionRepo, alertService, enqueuer, lockRepo, schedInterval)
 
 	// Graceful shutdown: Ctrl+C ou SIGTERM encerra o loop limpo
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)

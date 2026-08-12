@@ -34,6 +34,8 @@ type Config struct {
 	SmtpUser           string
 	SmtpPass           string
 	SmtpFrom           string
+	SchedulerInterval  string
+	WorkerConcurrency  int
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -63,6 +65,8 @@ func Load() *Config {
 		SmtpUser:           getEnv("SMTP_USER", ""),
 		SmtpPass:           getEnv("SMTP_PASS", ""),
 		SmtpFrom:           getEnv("SMTP_FROM", "no-reply@cronflow.me"),
+		SchedulerInterval:  getEnv("SCHEDULER_INTERVAL", "30s"),
+		WorkerConcurrency:  getEnvAsInt("WORKER_CONCURRENCY", 50),
 	}
 }
 
