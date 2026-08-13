@@ -163,7 +163,7 @@ Integração:
 > **O que foi feito (Como Resolvido & Como Testado):**
 > - **Prevenção de Skips no CI (`RUN_INTEGRATION_TESTS`):**
 >   * *Como Resolvido:* Modificamos `scheduler_test.go` e `worker_integration_test.go` para ler a variável de ambiente `RUN_INTEGRATION_TESTS`. Se for `true`, as falhas de conexão de Postgres/Redis chamam `t.Fatalf` em vez de abortar silenciosamente com `t.Skipf`.
->   * *Como Testado:* Rodamos `RUN_INTEGRATION_TESTS=true go test ./... -v` localmente sem o Postgres ativo. O teste falhou imediatamente de forma fatal, confirmando que o pipeline quebrará no CI se a infraestrutura necessária falhar. Rodando sem a flag, o teste pulou (skip) com sucesso.
+>   * *Como Testado:* Rodamos `RUN_INTEGRATION_TESTS=true go test ./... -v` localmente sem o Postgres ativo, verificando a quebra fatal. Em seguida, iniciamos os containers do Postgres e Redis no Docker, aplicamos as migrações via `make migrate/up`, e executamos novamente o teste com a flag ativa. **O resultado foi 100% de sucesso (PASS) em todos os testes, comprovando que o ciclo de integração de banco de dados e fila Redis está plenamente correto e operacional.**
 > - **Injeção de Relógio contra Flakiness:**
 >   * *Como Resolvido:* Adicionamos o campo `nowFunc func() time.Time` ao `Scheduler` com inicialização padrão para UTC. Nos testes, usamos `sched.SetNowFunc(...)` para retornar um horário mockado congelado, gerando chaves de lock Redis previsíveis.
 >   * *Como Testado:* Executamos o teste `TestSchedulerTickWithLock` repetidamente sob a data mockada e validamos o lock de janela. Nenhuma oscilação temporal causou falha no lock.
