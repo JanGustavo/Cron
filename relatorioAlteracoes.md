@@ -60,6 +60,13 @@ As alterações foram focadas em **responsividade nas telas internas**, **limpez
   * Adicionamos os comentários de supressão seletiva corretos e removemos os blocos globais de disable que causavam warnings de diretivas não utilizadas.
   * **Status**: O pipeline de build (`npm run build`) e o lint (`npm run lint`) agora passam com **0 erros e 0 warnings**.
 
+#### 📝 Alinhamento do Formulário de Cadastro (Signup) com Validações do Backend
+* **Antes**: Ao tentar criar uma nova conta, o cadastro falhava com a mensagem: `"todos os campos (email, password, project_name, full_name, cpf) são obrigatórios"`. Isso ocorria porque a interface do frontend (`LoginGate.tsx`) não coletava nem enviava os campos `full_name` e `cpf` (que são as validações obrigatórias anti-fraude do backend), além de enviar a propriedade do projeto em camelCase (`projectName`), a qual não era parseada corretamente pelo backend (que espera `project_name` em snake_case).
+* **Agora**:
+  * Adicionamos os estados `fullName` e `cpf` no formulário e adicionamos os campos visuais correspondentes de **"Nome Completo"** e **"CPF"** com validação de formato e máscara numérica dinâmica de 11 dígitos.
+  * Corrigimos o payload da requisição de cadastro para enviar as propriedades em snake_case: `email`, `password`, `project_name`, `full_name` e `cpf`.
+  * **Resultado**: O cadastro de novos usuários funciona perfeitamente, registrando o novo projeto/workspace inicial e associando o CPF de forma única no banco de dados.
+
 #### ✍️ Ajuste e Previsibilidade na Copy
 * Substituímos termos comerciais excessivamente otimistas como "exato milissegundo", "latência sub-milissegundo" ou "alta precisão" por termos baseados no comportamento técnico real: **"agendamento previsível"** e **"conforme o intervalo ou expressão cron configurados"**.
 
