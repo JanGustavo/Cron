@@ -22,10 +22,16 @@ Executar um teste controlado no ambiente publicado, usando um endpoint próprio 
 | Mobile | Landing, modal, Kanban e perfil continuam utilizáveis |
 
 > [!NOTE]
-> **O que foi feito:**
-> - **Simulador de Execução (Timeout / HTTP 500 / Retry / HMAC):** Implementamos o modal retro-terminal interativo de demonstração no frontend (`LoginGate.tsx`) que executa de forma animada todo esse ciclo: Scheduler dispara, Redis adquire o lock, primeira tentativa falha por timeout, ocorre a retentativa com backoff, e a segunda tentativa finaliza com sucesso (HTTP 200 OK) e assinatura HMAC.
-> - **Mobile-First Kanban e Perfil:** Refatoramos a visualização do Kanban (`KanbanBoard.tsx`) para usar abas (Tabs) em telas pequenas, de modo que o usuário veja apenas a coluna ativa e evite scrolls horizontais exaustivos. Também ajustamos o grid de atalhos rápidos do perfil (`ProfilePage.tsx`) para se empilhar dinamicamente.
-> - **Segurança (HMAC, API Key, SSRF, Redirects):** Ampliamos a seção da Landing Page com 4 cards técnicos de diferenciais comerciais detalhando de forma objetiva como cada um desses itens está implementado e assegurado no backend.
+> **O que foi feito (Como Resolvido & Como Testado):**
+> - **Simulador de Execução (Timeout / HTTP 500 / Retry / HMAC):**
+>   * *Como Resolvido:* Criamos um simulador interativo em React (`LoginGate.tsx`) controlado por estados de etapa (`simulationStep`) e timers (`setTimeout`) que simula de forma animada o ciclo de vida completo de um job instável (aquisição de lock Redis, timeout, backoff exponencial, sucesso 200 OK e assinatura HMAC).
+>   * *Como Testado:* Executamos o simulador localmente, abrindo o modal e observando o fluxo sequencial das etapas visuais. Também verificamos que o build do frontend (`vite build`) foi gerado sem erros.
+> - **Mobile-First Kanban e Perfil:**
+>   * *Como Resolvido:* Em `KanbanBoard.tsx`, criamos a variável de estado `activeMobileColumn` e renderizadores condicionais: no desktop (`hidden lg:flex`), exibe as colunas completas; no mobile/tablet (`lg:hidden`), exibe abas horizontais e renderiza apenas a coluna selecionada. Em `ProfilePage.tsx`, mudamos o grid estático `grid-cols-3` para `grid-cols-1 sm:grid-cols-3`.
+>   * *Como Testado:* Simulamos redimensionamento de tela no DevTools do navegador em resoluções de 360px (mobile) e 768px (tablet). O Kanban passou a alternar as abas corretamente com contadores e o perfil empilhou os atalhos sem quebrar a tela.
+> - **Segurança (HMAC, API Key, SSRF, Redirects):**
+>   * *Como Resolvido:* Expandimos a Landing Page de 2 para 4 cards informativos detalhados descrevendo tecnicamente a proteção ativa contra SSRF no dialer do Go, integridade de payload com HMAC, API Keys isoladas por projeto e validação de redirects no middleware HTTP.
+>   * *Como Testado:* Verificamos a correspondência de cada especificação com o código real do backend em `httputil/client.go` e validamos a leitura no painel visual da landing page.
 
 Fazer capturas de tela e registrar horário, job, resposta HTTP, quantidade de tentativas e resultado. Isso serve como evidência comercial e como base para corrigir regressões.
 
@@ -110,12 +116,10 @@ Criar documentação com exemplos de:
 - Como interpretar um log de execução
 
 > [!NOTE]
-> **O que foi feito:**
-> - **Comunicação de Segurança:** Implementamos a comunicação e documentação na landing page de 4 aspectos fundamentais do backend:
->   1. *Anti-SSRF*: Validação de IP público contra loops e IPs locais.
->   2. *HMAC-SHA256*: Assinatura de autenticidade no cabeçalho do webhook.
->   3. *API Keys*: Chaves exclusivas e revogáveis por workspace.
->   4. *Redirects*: Validação e bloqueio de destinos inseguros.
+> **O que foi feito (Como Resolvido & Como Testado):**
+> - **Comunicação de Segurança:**
+>   * *Como Resolvido:* Adicionamos a explicação dos 4 mecanismos reais do backend diretamente na área comercial do frontend.
+>   * *Como Testado:* Cruzamos as descrições da Landing Page com as implementações de `isPrivateIP` e `CheckRedirect` em `client.go`, garantindo que os diferenciais anunciados (como prevenção contra DNS Rebinding e redes locais RFC 1918) estão cobertos no backend.
 
 Isso reduz dúvidas no onboarding e aumenta a credibilidade com desenvolvedores.
 
@@ -156,10 +160,16 @@ Integração:
 ```
 
 > [!NOTE]
-> **O que foi feito:**
-> - **Prevenção de Skips no CI (`RUN_INTEGRATION_TESTS`):** Refatoramos os testes de integração do Scheduler e do Worker (`scheduler_test.go` e `worker_integration_test.go`) para checar a variável de ambiente `RUN_INTEGRATION_TESTS`. Se for `true`, o teste falha com erro fatal (`t.Fatalf`) no caso de indisponibilidade de Postgres ou Redis, impedindo falsos-verdes silenciosos em pipelines.
-> - **Injeção de Relógio contra Flakiness:** Modificamos o scheduler para aceitar injeção de clock (`nowFunc`). Nos testes, travamos a execução em uma época estável, eliminando qualquer risco de falhas por trocas de janela temporal.
-> - **Serviço de E-mail Resiliente:** O `MailService` agora trata de forma segura e explícita a ausência de SMTP (comportando-se como no-op / log de aviso e retorno `nil`), permitindo testes estáveis sem infraestrutura de e-mail ativa.
+> **O que foi feito (Como Resolvido & Como Testado):**
+> - **Prevenção de Skips no CI (`RUN_INTEGRATION_TESTS`):**
+>   * *Como Resolvido:* Modificamos `scheduler_test.go` e `worker_integration_test.go` para ler a variável de ambiente `RUN_INTEGRATION_TESTS`. Se for `true`, as falhas de conexão de Postgres/Redis chamam `t.Fatalf` em vez de abortar silenciosamente com `t.Skipf`.
+>   * *Como Testado:* Rodamos `RUN_INTEGRATION_TESTS=true go test ./... -v` localmente sem o Postgres ativo. O teste falhou imediatamente de forma fatal, confirmando que o pipeline quebrará no CI se a infraestrutura necessária falhar. Rodando sem a flag, o teste pulou (skip) com sucesso.
+> - **Injeção de Relógio contra Flakiness:**
+>   * *Como Resolvido:* Adicionamos o campo `nowFunc func() time.Time` ao `Scheduler` com inicialização padrão para UTC. Nos testes, usamos `sched.SetNowFunc(...)` para retornar um horário mockado congelado, gerando chaves de lock Redis previsíveis.
+>   * *Como Testado:* Executamos o teste `TestSchedulerTickWithLock` repetidamente sob a data mockada e validamos o lock de janela. Nenhuma oscilação temporal causou falha no lock.
+> - **Serviço de E-mail Resiliente:**
+>   * *Como Resolvido:* Em `mail_service.go`, adicionamos uma validação de parâmetros de host/user SMTP. Se vazios, o serviço imprime um log com `[MOCK EMAIL]` e retorna `nil`.
+>   * *Como Testado:* O teste `TestWorkerIntegration` foi executado passando strings de SMTP em branco, verificando que o e-mail mockado foi registrado em stdout e o teste passou com sucesso sem dependências externas.
 
 A variável `RUN_INTEGRATION_TESTS=true` deve estar definida no CI. Caso contrário, os testes de integração ainda poderão ser pulados durante uma execução aparentemente verde.
 
