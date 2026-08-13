@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"runtime"
 
 	"github.com/hibiken/asynq"
 )
@@ -12,6 +13,32 @@ type MetricsHandler struct {
 
 func NewMetricsHandler(redisAddr string) *MetricsHandler {
 	return &MetricsHandler{redisAddr: redisAddr}
+}
+
+type SystemStats struct {
+	GoroutinesCount int    `json:"goroutines_count"`
+	AllocBytes      uint64 `json:"alloc_bytes"`
+	SysBytes        uint64 `json:"sys_bytes"`
+	HeapSysBytes    uint64 `json:"heap_sys_bytes"`
+	HeapObjects     uint64 `json:"heap_objects"`
+	NumGC           uint32 `json:"num_gc"`
+}
+
+// SystemMetrics — GET /v1/metrics/system
+func (h *MetricsHandler) SystemMetrics(w http.ResponseWriter, r *http.Request) {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+
+	stats := SystemStats{
+		GoroutinesCount: runtime.NumGoroutine(),
+		AllocBytes:      m.Alloc,
+		SysBytes:        m.Sys,
+		HeapSysBytes:    m.HeapSys,
+		HeapObjects:     m.HeapObjects,
+		NumGC:           m.NumGC,
+	}
+
+	writeJSON(w, http.StatusOK, stats)
 }
 
 type QueueStats struct {

@@ -59,6 +59,7 @@ func New(
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
 		r.Get("/v1/executions", executionHandler.ListGlobal)
 		r.Get("/v1/metrics/queue", metricsHandler.QueueMetrics)
+		r.Get("/v1/metrics/system", metricsHandler.SystemMetrics)
 
 		r.Get("/v1/pix/valores", pixHandler.ListValores)
 		r.Get("/v1/pix/qr", pixHandler.GenerateQR)
