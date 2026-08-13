@@ -48,6 +48,10 @@ As alterações foram focadas em **responsividade nas telas internas**, **limpez
 * Adicionados estilos visuais claros de foco (`focus-visible:ring-2 focus-visible:ring-cyan-500/40`) nos CTAs principais e secundários da landing page, bem como nos botões seletores de abas (Login/Registro) e modais.
 * Garantido que todos os controles interativos possam ser focados por teclado de forma óbvia.
 
+#### 🔍 Inspeção Detalhada de Execuções e Erros no Dashboard
+* **Antes**: No dashboard principal, a lista de "Atividade Recente" e a lista colapsável de erros classificados possuíam eventos de clique configurados para abrir o modal de auditoria/log. Porém, o componente `<LogDetail />` não estava sendo importado e renderizado nesta página, fazendo com que as ações de clique não tivessem qualquer efeito visual (nenhum modal abria).
+* **Agora**: Importamos e renderizamos o componente de slide-over `<LogDetail logs={allRecentLogs} />` diretamente na base de [`DashboardPage.tsx`](file:///media/jandersongustavo/f8223ea0-bc74-41e8-8f66-650dbe31ee07/Arquivos_Janderson/Documentos/Projetos/cronflow-project/cron%20front/src/pages/DashboardPage.tsx). Isso permite que qualquer clique em um log de falha de atividade recente ou na listagem detalhada de tipos de erro abra instantaneamente a gaveta de inspeção técnica, exibindo os dados completos de URL, payloads, headers, e a opção de replay.
+
 #### 🧹 Resolução Completa de TypeScript e Linting (Zero Warnings & Errors)
 * **Antes**: ESLint falhava devido a múltiplos usos de `any`, warnings de dependências em `useCallback`, e regras customizadas de efeitos.
 * **Agora**:
