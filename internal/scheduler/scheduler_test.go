@@ -19,6 +19,8 @@ func TestSchedulerTickWithLock(t *testing.T) {
 	// Carrega as variáveis do arquivo .env do projeto para conectar no banco real local
 	_ = godotenv.Load("../../.env")
 
+	runIntegration := os.Getenv("RUN_INTEGRATION_TESTS") == "true"
+
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgresql://admin:secretpassword@localhost:5433/cronflow?sslmode=disable"
@@ -30,8 +32,12 @@ func TestSchedulerTickWithLock(t *testing.T) {
 
 	db, err := database.Connect(dbURL)
 	if err != nil {
-		t.Skipf("Pulando teste: Postgres indisponível no ambiente local: %v", err)
-		return
+		if runIntegration {
+			t.Fatalf("Erro crítico: Postgres indisponível no ambiente de testes de integração: %v", err)
+		} else {
+			t.Skipf("Pulando teste: Postgres indisponível no ambiente local (defina RUN_INTEGRATION_TESTS=true para forçar erro): %v", err)
+			return
+		}
 	}
 	defer db.Close()
 
@@ -47,11 +53,14 @@ func TestSchedulerTickWithLock(t *testing.T) {
 	interval := 5 * time.Second
 	sched := New(jobRepo, execRepo, nil, enqueuer, lockRepo, interval)
 
+	// Injeta uma hora fixa mockada para evitar flakiness próximo da troca de janelas
+	mockTime := time.Date(2026, 8, 13, 10, 0, 0, 0, time.UTC)
+	sched.SetNowFunc(func() time.Time { return mockTime })
+
 	ctx := context.Background()
 
-	// Calcula a chave de lock esperada para a época atual
-	now := time.Now().UTC()
-	epochWindow := now.Unix() / int64(interval.Seconds())
+	// Calcula a chave de lock esperada para a época da hora mockada
+	epochWindow := mockTime.Unix() / int64(interval.Seconds())
 	lockKey := fmt.Sprintf("cronflow:scheduler:lock:%d", epochWindow)
 
 	// Limpa qualquer lock antigo da época atual

@@ -39,18 +39,28 @@ func TestWorkerIntegration(t *testing.T) {
 		redisURL = "localhost:6379"
 	}
 
+	runIntegration := os.Getenv("RUN_INTEGRATION_TESTS") == "true"
+
 	// Tenta conectar ao Postgres
 	db, err := database.Connect(dbURL)
 	if err != nil {
-		t.Skipf("Pulando teste de integração: erro ao conectar no Postgres: %v", err)
-		return
+		if runIntegration {
+			t.Fatalf("Erro crítico de integração: erro ao conectar no Postgres: %v", err)
+		} else {
+			t.Skipf("Pulando teste de integração: erro ao conectar no Postgres (defina RUN_INTEGRATION_TESTS=true para forçar erro): %v", err)
+			return
+		}
 	}
 	defer db.Close()
 
 	// Verifica se a tabela users/jobs existe realizando um ping rápido
 	if err := db.Ping(); err != nil {
-		t.Skipf("Pulando teste de integração: ping no Postgres falhou: %v", err)
-		return
+		if runIntegration {
+			t.Fatalf("Erro crítico de integração: ping no Postgres falhou: %v", err)
+		} else {
+			t.Skipf("Pulando teste de integração: ping no Postgres falhou (defina RUN_INTEGRATION_TESTS=true para forçar erro): %v", err)
+			return
+		}
 	}
 
 	// Garante DDL do CPF, Nome Completo, WebhookSecret e LastUsedAt no banco de teste

@@ -30,6 +30,7 @@ type Scheduler struct {
 	lockRepo      *redis.LockRepository
 	interval      time.Duration
 	cleanupTick   int
+	nowFunc       func() time.Time
 }
 
 func New(
@@ -47,7 +48,13 @@ func New(
 		enqueuer:      enqueuer,
 		lockRepo:      lockRepo,
 		interval:      interval,
+		nowFunc:       func() time.Time { return time.Now().UTC() },
 	}
+}
+
+// SetNowFunc allows injecting a mock clock for testing
+func (s *Scheduler) SetNowFunc(nowFunc func() time.Time) {
+	s.nowFunc = nowFunc
 }
 
 // Run inicia o loop principal do Scheduler — bloqueante, roda até o ctx ser cancelado.
@@ -78,7 +85,7 @@ func (s *Scheduler) tick(ctx context.Context) {
 		s.alertService.ProcessDailyDigests(ctx)
 	}
 
-	now := time.Now().UTC()
+	now := s.nowFunc()
 
 	if s.lockRepo != nil {
 		intervalSeconds := int64(s.interval.Seconds())
