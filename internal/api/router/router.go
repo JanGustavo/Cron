@@ -25,7 +25,7 @@ func New(
 	r := chi.NewRouter()
 
 	// Middlewares globais
-	r.Use(middleware.RateLimit(60))
+	r.Use(middleware.RateLimit(300))
 	r.Use(middleware.CORS)
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
