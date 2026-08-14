@@ -208,7 +208,7 @@ func (r *BillingRepository) UpsertSubscription(ctx context.Context, sub *billing
 		pEnd = sql.NullTime{Time: *sub.CurrentPeriodEnd, Valid: true}
 	}
 
-	return r.db.QueryRowContext(ctx, query,
+	err := r.db.QueryRowContext(ctx, query,
 		sub.UserID,
 		sub.PlanCode,
 		sub.Status,
@@ -219,6 +219,18 @@ func (r *BillingRepository) UpsertSubscription(ctx context.Context, sub *billing
 		pEnd,
 		sub.CancelAtPeriodEnd,
 	).Scan(&sub.ID)
+	if err != nil {
+		return err
+	}
+
+	// Sincroniza a coluna 'plan' do usuário de acordo com o status da assinatura
+	userPlan := "free"
+	if sub.Status == "active" || sub.Status == "trialing" {
+		userPlan = sub.PlanCode
+	}
+
+	_, err = r.db.ExecContext(ctx, "UPDATE users SET plan = $1 WHERE id = $2", userPlan, sub.UserID)
+	return err
 }
 
 // GetSubscriptionByProviderSubID retrieves a subscription record using the Stripe subscription ID.

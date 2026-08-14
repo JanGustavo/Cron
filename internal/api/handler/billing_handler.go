@@ -137,7 +137,7 @@ func (h *BillingHandler) CreatePortalSession(w http.ResponseWriter, r *http.Requ
 // Webhook recebe, valida a assinatura e processa eventos emitidos pela Stripe
 // POST /v1/billing/webhook
 func (h *BillingHandler) Webhook(w http.ResponseWriter, r *http.Request) {
-	const MaxBodySize = 65536
+	const MaxBodySize = 1048576 // 1MB
 	r.Body = http.MaxBytesReader(w, r.Body, MaxBodySize)
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
