@@ -195,68 +195,30 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 4. Cria projeto padrão
-	proj, err := h.userRepo.CreateProject(r.Context(), u.ID, req.ProjectName)
+	_, err = h.userRepo.CreateProject(r.Context(), u.ID, req.ProjectName)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "erro ao criar projeto inicial")
 		return
 	}
 
-	// 5. Gera chave de API segura vinculada ao projeto
-	apiKey, err := auth.Generate()
+	// 5. Gera token JWT de verificação válido por 24 horas
+	verifyToken, err := auth.GenerateToken(u.ID, u.Email, "", "", h.cfg.JWTSecret, 24*time.Hour)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar chave de API")
+		writeError(w, http.StatusInternalServerError, "erro ao assinar token de verificação")
 		return
 	}
 
-	keyHash := auth.Hash(apiKey)
-	// Salva apenas o hash no banco
-	prefix := apiKey[:12] // Exemplo: "cf_live_abcd"
-	if err := h.userRepo.CreateAPIKey(r.Context(), proj.ID, keyHash, prefix); err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao salvar chave de API")
-		return
+	verificationLink := fmt.Sprintf("%s/verify-email?token=%s", h.cfg.FrontendURL, verifyToken)
+	if err := h.mailService.SendVerificationEmail(u.Email, verificationLink); err != nil {
+		log.Printf("AuthHandler.Signup: falha ao enviar e-mail: %v", err)
 	}
 
-	// 6. Gera token JWT válido por 24 horas
-	duration := 24 * time.Hour
-	jwtToken, err := auth.GenerateToken(u.ID, u.Email, proj.ID, string(u.Plan), h.cfg.JWTSecret, duration)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao assinar token de autenticação")
-		return
-	}
-
-	// 7. Retorna resposta
-	res := AuthResponse{
-		Token: TokenResponse{
-			AccessToken:  jwtToken,
-			RefreshToken: "",
-			TokenType:    "Bearer",
-			ExpiresIn:    int(duration.Seconds()),
-		},
-		User: UserResponse{
-			ID:        u.ID,
-			Email:     u.Email,
-			Plan:      string(u.Plan),
-			FullName:  u.FullName,
-			CreatedAt: u.CreatedAt.Format(time.RFC3339),
-		},
-		Projects: []ProjectResponse{
-			{
-				ID:            proj.ID,
-				UserID:        proj.UserID,
-				Name:          proj.Name,
-				CreatedAt:     proj.CreatedAt.Format(time.RFC3339),
-				WebhookSecret: func() string {
-					if proj.WebhookSecret != nil && *proj.WebhookSecret != "" {
-						return *proj.WebhookSecret
-					}
-					return auth.ComputeWebhookSecret(proj.ID, h.cfg.JWTSecret)
-				}(),
-			},
-		},
-		APIKey: apiKey, // Plain text mostrada apenas UMA vez no cadastro
-	}
-
-	writeJSON(w, http.StatusCreated, res)
+	writeJSON(w, http.StatusCreated, map[string]interface{}{
+		"status":                "success",
+		"message":               "Conta criada com sucesso! Por favor, verifique seu e-mail para ativar sua conta.",
+		"requires_verification": true,
+		"link":                  verificationLink, // retornado em JSON no desenvolvimento para bypass do simulador
+	})
 }
 
 // Login — POST /v1/auth/login
@@ -298,6 +260,12 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	// 2. Compara hash
 	if !auth.CheckPasswordHash(req.Password, u.PasswordHash) {
 		writeError(w, http.StatusUnauthorized, "credenciais inválidas")
+		return
+	}
+
+	// 2.5. Verifica se o e-mail foi confirmado
+	if !u.IsVerified {
+		writeError(w, http.StatusForbidden, "Por favor, confirme seu e-mail antes de acessar a conta")
 		return
 	}
 
@@ -357,6 +325,202 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, res)
 }
+
+type VerifyEmailRequest struct {
+	Token string `json:"token"`
+}
+
+// VerifyEmail — POST /v1/auth/verify-email
+// @Summary Confirmar cadastro e ativar conta
+// @Description Confirma o e-mail do usuário usando o token enviado por e-mail e ativa a conta gerando a chave de API inicial.
+// @Tags Autenticação
+// @Accept json
+// @Produce json
+// @Param body body VerifyEmailRequest true "Token de confirmação de e-mail"
+// @Success 200 {object} AuthResponse "Conta ativada e autenticada"
+// @Router /v1/auth/verify-email [post]
+func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	var req VerifyEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "payload inválido")
+		return
+	}
+
+	if req.Token == "" {
+		writeError(w, http.StatusBadRequest, "o token de confirmação é obrigatório")
+		return
+	}
+
+	// 1. Valida o token JWT e extrai os claims
+	claims, err := auth.ValidateToken(req.Token, h.cfg.JWTSecret)
+	if err != nil {
+		writeError(w, http.StatusUnauthorized, "Token de confirmação inválido ou expirado")
+		return
+	}
+
+	// 2. Busca o usuário
+	u, err := h.userRepo.FindByEmail(r.Context(), claims.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao buscar usuário")
+		return
+	}
+	if u == nil {
+		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		return
+	}
+
+	// 3. Busca projetos do usuário
+	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao buscar projetos")
+		return
+	}
+
+	if len(projects) == 0 {
+		_, err = h.userRepo.CreateProject(r.Context(), u.ID, "Projeto Principal")
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "erro ao criar projeto")
+			return
+		}
+		// Recarrega os projetos
+		projects, err = h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "erro ao buscar projetos")
+			return
+		}
+	}
+
+	var apiKey string
+
+	// 4. Se não estiver verificado, ativa e gera a primeira chave de API
+	if !u.IsVerified {
+		if err := h.userRepo.UpdateVerified(r.Context(), u.ID, true); err != nil {
+			writeError(w, http.StatusInternalServerError, "erro ao ativar usuário")
+			return
+		}
+
+		apiKey, err = auth.Generate()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "erro ao gerar chave de API")
+			return
+		}
+
+		keyHash := auth.Hash(apiKey)
+		prefix := apiKey[:12]
+		if err := h.userRepo.CreateAPIKey(r.Context(), projects[0].ID, keyHash, prefix); err != nil {
+			writeError(w, http.StatusInternalServerError, "erro ao salvar chave de API")
+			return
+		}
+	}
+
+	// 5. Gera token JWT válido por 24 horas para o login imediato
+	duration := 24 * time.Hour
+	jwtToken, err := auth.GenerateToken(u.ID, u.Email, projects[0].ID, string(u.Plan), h.cfg.JWTSecret, duration)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao assinar token de autenticação")
+		return
+	}
+
+	var projResponses []ProjectResponse
+	for _, p := range projects {
+		projResponses = append(projResponses, ProjectResponse{
+			ID:            p.ID,
+			UserID:        p.UserID,
+			Name:          p.Name,
+			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+			WebhookSecret: func() string {
+				if p.WebhookSecret != nil && *p.WebhookSecret != "" {
+					return *p.WebhookSecret
+				}
+				return auth.ComputeWebhookSecret(p.ID, h.cfg.JWTSecret)
+			}(),
+		})
+	}
+
+	res := AuthResponse{
+		Token: TokenResponse{
+			AccessToken:  jwtToken,
+			RefreshToken: "",
+			TokenType:    "Bearer",
+			ExpiresIn:    int(duration.Seconds()),
+		},
+		User: UserResponse{
+			ID:        u.ID,
+			Email:     u.Email,
+			Plan:      string(u.Plan),
+			FullName:  u.FullName,
+			CreatedAt: u.CreatedAt.Format(time.RFC3339),
+		},
+		Projects: projResponses,
+		APIKey:   apiKey, // Retorna em texto claro se acabou de ser criada, ou vazio se já verificado
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+
+type ResendVerificationRequest struct {
+	Email string `json:"email"`
+}
+
+// ResendVerification — POST /v1/auth/resend-verification
+// @Summary Reenviar e-mail de confirmação
+// @Description Reenvia o link de ativação da conta para o e-mail informado.
+// @Tags Autenticação
+// @Accept json
+// @Produce json
+// @Param body body ResendVerificationRequest true "E-mail cadastrado"
+// @Success 200 {object} map[string]string "E-mail reenviado com sucesso"
+// @Router /v1/auth/resend-verification [post]
+func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
+	var req ResendVerificationRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "payload inválido")
+		return
+	}
+
+	if req.Email == "" {
+		writeError(w, http.StatusBadRequest, "o e-mail é obrigatório")
+		return
+	}
+
+	// 1. Busca o usuário
+	u, err := h.userRepo.FindByEmail(r.Context(), req.Email)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao buscar usuário")
+		return
+	}
+	if u == nil {
+		writeError(w, http.StatusNotFound, "este e-mail não está cadastrado")
+		return
+	}
+
+	// 2. Se já verificado, avisa
+	if u.IsVerified {
+		writeError(w, http.StatusConflict, "este e-mail já foi verificado e a conta está ativa")
+		return
+	}
+
+	// 3. Gera novo token de verificação
+	verifyToken, err := auth.GenerateToken(u.ID, u.Email, "", "", h.cfg.JWTSecret, 24*time.Hour)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao gerar token de verificação")
+		return
+	}
+
+	verificationLink := fmt.Sprintf("%s/verify-email?token=%s", h.cfg.FrontendURL, verifyToken)
+	if err := h.mailService.SendVerificationEmail(u.Email, verificationLink); err != nil {
+		log.Printf("AuthHandler.ResendVerification: falha ao enviar e-mail: %v", err)
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":                "success",
+		"message":               "Link de confirmação reenviado com sucesso!",
+		"requires_verification": true,
+		"link":                  verificationLink, // retornado em JSON no desenvolvimento para bypass do simulador
+	})
+}
+
+
 
 // ListAPIKeys — GET /v1/keys
 // @Summary Listar API Keys

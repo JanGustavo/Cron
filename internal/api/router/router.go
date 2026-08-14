@@ -36,6 +36,8 @@ func New(
 	r.Get("/v1/health", healthHandler.Check)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Post("/v1/auth/signup", authHandler.Signup)
+	r.Post("/v1/auth/verify-email", authHandler.VerifyEmail)
+	r.Post("/v1/auth/resend-verification", authHandler.ResendVerification)
 	r.Post("/v1/auth/login", authHandler.Login)
 	r.Post("/v1/auth/forgot-password", authHandler.ForgotPassword)
 	r.Post("/v1/auth/reset-password", authHandler.ResetPassword)

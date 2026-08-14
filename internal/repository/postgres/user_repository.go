@@ -29,9 +29,9 @@ func NewUserRepository(db *sql.DB) *UserRepository{
 func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO users (email) VALUES ($1) RETURNING id, email, plan, COALESCE(password_hash, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, created_at`,
+		`INSERT INTO users (email) VALUES ($1) RETURNING id, email, plan, COALESCE(password_hash, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.CreateUser: %w", err)
 	}
@@ -42,9 +42,9 @@ func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.Us
 func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, passwordHash, fullName, cpf string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO users (email, password_hash, full_name, cpf) VALUES ($1, $2, $3, NULLIF($4, '')) RETURNING id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, created_at`,
+		`INSERT INTO users (email, password_hash, full_name, cpf) VALUES ($1, $2, $3, NULLIF($4, '')) RETURNING id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at`,
 		email, passwordHash, fullName, cpf,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.CreateUserWithPassword: %w", err)
 	}
@@ -55,9 +55,9 @@ func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, pass
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, created_at FROM users WHERE email = $1 LIMIT 1`,
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at FROM users WHERE email = $1 LIMIT 1`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -71,9 +71,9 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*user.U
 func (r *UserRepository) FindByCPF(ctx context.Context, cpf string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, created_at FROM users WHERE cpf = $1 LIMIT 1`,
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at FROM users WHERE cpf = $1 LIMIT 1`,
 		cpf,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -339,6 +339,18 @@ func (r *UserRepository) DeleteProject(ctx context.Context, projectID string) er
 	)
 	if err != nil {
 		return fmt.Errorf("UserRepository.DeleteProject: %w", err)
+	}
+	return nil
+}
+
+// UpdateVerified atualiza o status de verificação de e-mail do usuário.
+func (r *UserRepository) UpdateVerified(ctx context.Context, userID string, verified bool) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users SET is_verified = $1 WHERE id = $2`,
+		verified, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("UserRepository.UpdateVerified: %w", err)
 	}
 	return nil
 }

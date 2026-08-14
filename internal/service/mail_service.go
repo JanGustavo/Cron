@@ -92,6 +92,71 @@ func (s *MailService) SendPasswordResetEmail(to, resetLink string) error {
 	return nil
 }
 
+// SendVerificationEmail envia o link de confirmação de conta para o e-mail do usuário.
+func (s *MailService) SendVerificationEmail(to, verificationLink string) error {
+	subject := "Confirme seu E-mail - CronFlow"
+	
+	body := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #0b0f19; color: #f8fafc; margin: 0; padding: 40px 20px; }
+        .card { max-width: 500px; margin: 0 auto; background: #111827; border: 1px solid #1e293b; border-radius: 16px; padding: 32px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
+        .logo { font-size: 20px; font-weight: bold; color: #6366f1; text-align: center; margin-bottom: 24px; }
+        h2 { font-size: 18px; margin-top: 0; color: #f1f5f9; text-align: center; }
+        p { font-size: 14px; line-height: 1.6; color: #94a3b8; }
+        .btn-container { text-align: center; margin: 32px 0; }
+        .btn { display: inline-block; padding: 12px 24px; font-size: 14px; font-weight: bold; color: #ffffff !important; background-color: #4f46e5; border-radius: 12px; text-decoration: none; transition: background-color 0.2s; }
+        .btn:hover { background-color: #4338ca; }
+        .footer { font-size: 11px; color: #475569; text-align: center; margin-top: 32px; line-height: 1.4; }
+        .fallback-link { word-break: break-all; font-size: 12px; color: #6366f1; text-decoration: none; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="logo">CronFlow</div>
+        <h2>Confirmação de Cadastro</h2>
+        <p>Olá,</p>
+        <p>Agradecemos por se cadastrar no CronFlow! Clique no botão abaixo para confirmar seu endereço de e-mail e ativar a sua conta.</p>
+        <div class="btn-container">
+            <a href="%s" class="btn" target="_blank">Confirmar E-mail</a>
+        </div>
+        <p>Se o botão acima não funcionar, copie e cole o seguinte link no seu navegador:</p>
+        <p><a href="%s" class="fallback-link" target="_blank">%s</a></p>
+        <hr style="border: 0; border-top: 1px solid #1e293b; margin: 24px 0;">
+        <p class="footer">Se você não realizou este cadastro, por favor ignore este e-mail.<br>&copy; 2026 CronFlow. Todos os direitos reservados.</p>
+    </div>
+</body>
+</html>`, verificationLink, verificationLink, verificationLink)
+
+	if s.host == "" || s.user == "" {
+		log.Printf("\n========================================================================\n" +
+			"[MOCK EMAIL] Envio de Confirmação de E-mail (Sem SMTP configurado)\n" +
+			"Para: %s\n" +
+			"Assunto: %s\n" +
+			"Link: %s\n" +
+			"========================================================================\n", to, subject, verificationLink)
+		return nil
+	}
+
+	addr := fmt.Sprintf("%s:%d", s.host, s.port)
+	auth := smtp.PlainAuth("", s.user, s.pass, s.host)
+	msg := []byte(fmt.Sprintf("To: %s\r\n"+
+		"Subject: %s\r\n"+
+		"MIME-version: 1.0;\r\n"+
+		"Content-Type: text/html; charset=\"UTF-8\";\r\n\r\n"+
+		"%s\r\n", to, subject, body))
+
+	err := smtp.SendMail(addr, auth, s.from, []string{to}, msg)
+	if err != nil {
+		return fmt.Errorf("MailService.SendVerificationEmail: %w", err)
+	}
+
+	log.Printf("MailService: E-mail de confirmação enviado com sucesso para %s", to)
+	return nil
+}
+
 // SendFailureAlert envia um alerta de falha de execução de job.
 func (s *MailService) SendFailureAlert(to, frontendURL string, jName, jID, schedule, url, method, errorMsg string, consecutiveFailures, httpStatus int, durationMs int) error {
 	subject := fmt.Sprintf("🚨 Falha Crítica: Job '%s' Suspenso - CronFlow", jName)

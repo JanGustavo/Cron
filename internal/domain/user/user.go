@@ -27,6 +27,7 @@ type User struct {
 	Timezone           string
 	DigestHour         int
 	LastDigestSentAt   *time.Time
+	IsVerified         bool
 	CreatedAt          time.Time
 }
 
