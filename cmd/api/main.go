@@ -112,7 +112,7 @@ func main() {
 	healthHandler := handler.NewHealthHandler(db, cfg.RedisURL, cfg.AppEnv, cfg.SchedulerInterval, cfg.WorkerConcurrency)
 	jobHandler := handler.NewJobHandler(jobService)
 	executionHandler := handler.NewExecutionHandler(jobService, executionRepo)
-	authHandler := handler.NewAuthHandler(userRepo, mailService, cfg)
+	authHandler := handler.NewAuthHandler(userRepo, mailService, entitlementEngine, cfg)
 	agentHandler := handler.NewAgentHandler(jobService, cfg)
 	pixHandler := handler.NewPixHandler()
 	metricsHandler := handler.NewMetricsHandler(cfg.RedisURL)

@@ -22,13 +22,14 @@ import (
 )
 
 type AuthHandler struct {
-	userRepo    *postgres.UserRepository
-	mailService *service.MailService
-	cfg         *config.Config
+	userRepo          *postgres.UserRepository
+	mailService       *service.MailService
+	entitlementEngine *service.EntitlementEngine
+	cfg               *config.Config
 }
 
-func NewAuthHandler(userRepo *postgres.UserRepository, mailService *service.MailService, cfg *config.Config) *AuthHandler {
-	return &AuthHandler{userRepo: userRepo, mailService: mailService, cfg: cfg}
+func NewAuthHandler(userRepo *postgres.UserRepository, mailService *service.MailService, entitlementEngine *service.EntitlementEngine, cfg *config.Config) *AuthHandler {
+	return &AuthHandler{userRepo: userRepo, mailService: mailService, entitlementEngine: entitlementEngine, cfg: cfg}
 }
 
 type SignupRequest struct {
@@ -1041,19 +1042,29 @@ type UpdateProfileRequest struct {
 	DigestHour         int    `json:"digest_hour"`
 }
 
+type PlanLimitsResponse struct {
+	MaxJobs               int  `json:"maxJobs"`
+	MaxUsers              int  `json:"maxUsers"`
+	LogsRetentionDays     int  `json:"logsRetentionDays"`
+	WorkflowsEnabled      bool `json:"workflowsEnabled"`
+	AlertsWebhooksEnabled bool `json:"alertsWebhooksEnabled"`
+	MultiProjectEnabled   bool `json:"multiProjectEnabled"`
+}
+
 type ProfileResponse struct {
-	ID                 string            `json:"id"`
-	Email              string            `json:"email"`
-	Plan               string            `json:"plan"`
-	FullName           string            `json:"fullName"`
-	CPF                string            `json:"cpf"`
-	EmailAlertsEnabled bool              `json:"emailAlertsEnabled"`
-	DailyDigestEnabled bool              `json:"dailyDigestEnabled"`
-	Timezone           string            `json:"timezone"`
-	DigestHour         int               `json:"digestHour"`
-	CreatedAt          string            `json:"createdAt"`
-	TotalJobsCreated   int               `json:"totalJobsCreated"`
-	Projects           []ProjectResponse `json:"projects"`
+	ID                 string             `json:"id"`
+	Email              string             `json:"email"`
+	Plan               string             `json:"plan"`
+	FullName           string             `json:"fullName"`
+	CPF                string             `json:"cpf"`
+	EmailAlertsEnabled bool               `json:"emailAlertsEnabled"`
+	DailyDigestEnabled bool               `json:"dailyDigestEnabled"`
+	Timezone           string             `json:"timezone"`
+	DigestHour         int                `json:"digestHour"`
+	CreatedAt          string             `json:"createdAt"`
+	TotalJobsCreated   int                `json:"totalJobsCreated"`
+	Projects           []ProjectResponse  `json:"projects"`
+	Limits             PlanLimitsResponse `json:"limits"`
 }
 
 // GetProfile — GET /v1/users/profile
@@ -1113,6 +1124,12 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano do usuário")
+		return
+	}
+
 	resp := ProfileResponse{
 		ID:                 u.ID,
 		Email:              u.Email,
@@ -1126,6 +1143,14 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		CreatedAt:          u.CreatedAt.Format(time.RFC3339),
 		TotalJobsCreated:   totalJobsCreated,
 		Projects:           projsResp,
+		Limits: PlanLimitsResponse{
+			MaxJobs:               limits.MaxJobs,
+			MaxUsers:              limits.MaxUsers,
+			LogsRetentionDays:     limits.LogsRetentionDays,
+			WorkflowsEnabled:      limits.WorkflowsEnabled,
+			AlertsWebhooksEnabled: limits.AlertsWebhooksEnabled,
+			MultiProjectEnabled:   limits.MultiProjectEnabled,
+		},
 	}
 
 	writeJSON(w, http.StatusOK, resp)
