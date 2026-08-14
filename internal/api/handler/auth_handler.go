@@ -61,11 +61,12 @@ type ProjectResponse struct {
 }
 
 type UserResponse struct {
-	ID        string `json:"id"`
-	Email     string `json:"email"`
-	Plan      string `json:"plan"`
-	FullName  string `json:"fullName,omitempty"`
-	CreatedAt string `json:"createdAt"`
+	ID        string              `json:"id"`
+	Email     string              `json:"email"`
+	Plan      string              `json:"plan"`
+	FullName  string              `json:"fullName,omitempty"`
+	CreatedAt string              `json:"createdAt"`
+	Limits    *PlanLimitsResponse `json:"limits,omitempty"`
 }
 
 type AuthResponse struct {
@@ -307,6 +308,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
+	if err != nil {
+		log.Printf("[Auth] Erro ao buscar limites para usuário %s (%s): %v", u.Email, u.ID, err)
+		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano")
+		return
+	}
+
 	res := AuthResponse{
 		Token: TokenResponse{
 			AccessToken:  jwtToken,
@@ -320,6 +328,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			Plan:      string(u.Plan),
 			FullName:  u.FullName,
 			CreatedAt: u.CreatedAt.Format(time.RFC3339),
+			Limits: &PlanLimitsResponse{
+				MaxJobs:               limits.MaxJobs,
+				MaxUsers:              limits.MaxUsers,
+				LogsRetentionDays:     limits.LogsRetentionDays,
+				WorkflowsEnabled:      limits.WorkflowsEnabled,
+				AlertsWebhooksEnabled: limits.AlertsWebhooksEnabled,
+				MultiProjectEnabled:   limits.MultiProjectEnabled,
+			},
 		},
 		Projects: projResponses,
 	}
@@ -438,6 +454,12 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano")
+		return
+	}
+
 	res := AuthResponse{
 		Token: TokenResponse{
 			AccessToken:  jwtToken,
@@ -451,9 +473,17 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 			Plan:      string(u.Plan),
 			FullName:  u.FullName,
 			CreatedAt: u.CreatedAt.Format(time.RFC3339),
+			Limits: &PlanLimitsResponse{
+				MaxJobs:               limits.MaxJobs,
+				MaxUsers:              limits.MaxUsers,
+				LogsRetentionDays:     limits.LogsRetentionDays,
+				WorkflowsEnabled:      limits.WorkflowsEnabled,
+				AlertsWebhooksEnabled: limits.AlertsWebhooksEnabled,
+				MultiProjectEnabled:   limits.MultiProjectEnabled,
+			},
 		},
 		Projects: projResponses,
-		APIKey:   apiKey, // Retorna em texto claro se acabou de ser criada, ou vazio se já verificado
+		APIKey:   apiKey,
 	}
 
 	writeJSON(w, http.StatusOK, res)
