@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/JanGustavo/Cron/internal/config"
@@ -21,23 +22,26 @@ var (
 )
 
 type JobService struct {
-	jobRepo  *postgres.JobRepository
-	userRepo *postgres.UserRepository
-	enqueuer *queue.Enqueuer
-	cfg      *config.Config
+	jobRepo           *postgres.JobRepository
+	userRepo          *postgres.UserRepository
+	entitlementEngine *EntitlementEngine
+	enqueuer          *queue.Enqueuer
+	cfg               *config.Config
 }
 
 func NewJobService(
 	jobRepo *postgres.JobRepository,
 	userRepo *postgres.UserRepository,
+	entitlementEngine *EntitlementEngine,
 	enqueuer *queue.Enqueuer,
 	cfg *config.Config,
 ) *JobService {
 	return &JobService{
-		jobRepo:  jobRepo,
-		userRepo: userRepo,
-		enqueuer: enqueuer,
-		cfg:      cfg,
+		jobRepo:           jobRepo,
+		userRepo:          userRepo,
+		entitlementEngine: entitlementEngine,
+		enqueuer:          enqueuer,
+		cfg:               cfg,
 	}
 }
 
@@ -69,20 +73,15 @@ func (s *JobService) Create(ctx context.Context, input CreateJobInput) (*job.Job
 		input.Timezone = "UTC"
 	}
 
-	// 3. Verifica limite de jobs do plano
+	// 3. Busca usuário e limites dinâmicos do plano
 	u, err := s.userRepo.FindUserByProjectID(ctx, input.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("JobService.Create: erro ao buscar usuario: %w", err)
 	}
 
-	count, err := s.jobRepo.CountByProject(ctx, input.ProjectID)
+	limits, err := s.entitlementEngine.GetUserLimits(ctx, u.ID)
 	if err != nil {
-		return nil, fmt.Errorf("JobService.Create: erro ao contar jobs: %w", err)
-	}
-
-	limit := u.MaxJobs(s.cfg.MaxJobsFreePlan, s.cfg.MaxJobsPaidPlan)
-	if count >= limit {
-		return nil, ErrJobLimitReached
+		return nil, fmt.Errorf("JobService.Create: erro ao obter limites do plano: %w", err)
 	}
 
 	// 4. Calcula o primeiro next_run_at
@@ -91,7 +90,7 @@ func (s *JobService) Create(ctx context.Context, input CreateJobInput) (*job.Job
 		return nil, fmt.Errorf("JobService.Create: erro ao calcular next_run: %w", err)
 	}
 
-	// 5. Monta a entidade e persiste
+	// 5. Monta a entidade
 	j := &job.Job{
 		ProjectID:       input.ProjectID,
 		Name:            input.Name,
@@ -108,8 +107,12 @@ func (s *JobService) Create(ctx context.Context, input CreateJobInput) (*job.Job
 		Tags:            input.Tags,
 	}
 
-	created, err := s.jobRepo.Create(ctx, j)
+	// 6. Persiste sob advisory lock transacional garantindo exclusão mútua e cotas precisas
+	created, err := s.jobRepo.CreateWithLock(ctx, j, u.ID, limits.MaxJobs)
 	if err != nil {
+		if strings.Contains(err.Error(), "limit_reached") {
+			return nil, ErrJobLimitReached
+		}
 		return nil, fmt.Errorf("JobService.Create: %w", err)
 	}
 

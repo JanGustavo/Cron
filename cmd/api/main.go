@@ -117,9 +117,9 @@ func main() {
 	defer enqueuer.Close()
 
 	// Services
-	jobService := service.NewJobService(jobRepo, userRepo, enqueuer, cfg)
-	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
 	entitlementEngine := service.NewEntitlementEngine(billingRepo)
+	jobService := service.NewJobService(jobRepo, userRepo, entitlementEngine, enqueuer, cfg)
+	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
 
 	// Handlers
 	healthHandler := handler.NewHealthHandler(db, cfg.RedisURL, cfg.AppEnv, cfg.SchedulerInterval, cfg.WorkerConcurrency)

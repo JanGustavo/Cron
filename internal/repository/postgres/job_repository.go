@@ -59,6 +59,79 @@ func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error
 	return j, nil
 }
 
+// CreateWithLock inserts a new job within a transaction and under an advisory lock on the user ID, checking limits first.
+func (r *JobRepository) CreateWithLock(ctx context.Context, j *job.Job, userID string, maxJobs int) (*job.Job, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("JobRepository.CreateWithLock (BeginTx): %w", err)
+	}
+	defer tx.Rollback()
+
+	// Adquire lock exclusivo no nível de transação para o userID
+	lockQuery := `SELECT pg_advisory_xact_lock(hashtext($1))`
+	_, err = tx.ExecContext(ctx, lockQuery, userID)
+	if err != nil {
+		return nil, fmt.Errorf("JobRepository.CreateWithLock (advisory_lock): %w", err)
+	}
+
+	// Conta quantos jobs o usuário tem atualmente em todos os seus projetos
+	countQuery := `
+		SELECT COUNT(j.id)
+		FROM jobs j
+		JOIN projects p ON j.project_id = p.id
+		WHERE p.user_id = $1
+	`
+	var activeCount int
+	err = tx.QueryRowContext(ctx, countQuery, userID).Scan(&activeCount)
+	if err != nil {
+		return nil, fmt.Errorf("JobRepository.CreateWithLock (Count): %w", err)
+	}
+
+	if activeCount >= maxJobs {
+		return nil, fmt.Errorf("limit_reached: %d/%d jobs ativos", activeCount, maxJobs)
+	}
+
+	headers, _ := json.Marshal(j.Headers)
+	payload, _ := json.Marshal(j.Payload)
+
+	insertQuery := `
+		INSERT INTO jobs 
+			(project_id, name, schedule, timezone, url, http_method, headers, payload, next_run_at, webhook_alert_url, next_job_id, tags)
+		VALUES 
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		RETURNING id, created_at, updated_at`
+
+	tags := j.Tags
+	if tags == nil {
+		tags = []string{}
+	}
+
+	err = tx.QueryRowContext(ctx, insertQuery,
+		j.ProjectID,
+		j.Name,
+		j.Schedule,
+		j.Timezone,
+		j.URL,
+		j.HTTPMethod,
+		headers,
+		payload,
+		j.NextRunAt,
+		j.WebhookAlertURL,
+		j.NextJobID,
+		pq.Array(tags),
+	).Scan(&j.ID, &j.CreatedAt, &j.UpdatedAt)
+
+	if err != nil {
+		return nil, fmt.Errorf("JobRepository.CreateWithLock (Insert): %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("JobRepository.CreateWithLock (Commit): %w", err)
+	}
+
+	return j, nil
+}
+
 // FindByID busca um job pelo ID.
 // Retorna nil, nil se não encontrado — o Service decide o que fazer com isso.
 func (r *JobRepository) FindByID(ctx context.Context, id string) (*job.Job, error) {
