@@ -47,7 +47,7 @@ sqlc/gen:
 
 # Testes
 test:
-	go test ./... -v -race
+	go test $$(go list ./... | grep -v /scratch) -v -race
 
 # Lint (requer golangci-lint)
 lint:
