@@ -144,11 +144,11 @@ func (s *Scheduler) tick(ctx context.Context) {
 	s.cleanupTick++
 	if s.cleanupTick >= 2880 {
 		s.cleanupTick = 0
-		deleted, err := s.executionRepo.DeleteOlderThan(ctx, 7)
+		deleted, err := s.executionRepo.DeleteExpiredExecutions(ctx)
 		if err != nil {
 			log.Printf("Scheduler: erro na limpeza de logs: %v", err)
 		} else if deleted > 0 {
-			log.Printf("Scheduler: limpeza — %d execuções antigas removidas", deleted)
+			log.Printf("Scheduler: limpeza — %d execuções antigas expiradas removidas", deleted)
 		}
 	}
 }

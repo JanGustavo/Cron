@@ -160,15 +160,32 @@ func (r *ExecutionRepository) ListByProject(
 	return executions, total, nil
 }
 
-// DeleteOlderThan deleta execuções mais antigas que N dias.
-// Chamado pelo job de limpeza diário.
-func (r *ExecutionRepository) DeleteOlderThan(ctx context.Context, days int) (int64, error) {
-	result, err := r.db.ExecContext(ctx,
-		`DELETE FROM executions WHERE triggered_at < NOW() - ($1 || ' days')::INTERVAL`,
-		days,
-	)
+// DeleteExpiredExecutions deleta execuções antigas conforme a cota de retenção do plano de cada usuário.
+func (r *ExecutionRepository) DeleteExpiredExecutions(ctx context.Context) (int64, error) {
+	query := `
+		DELETE FROM executions e
+		WHERE e.triggered_at < NOW() - (
+			COALESCE(
+				(
+					SELECT p.logs_retention_days
+					FROM plans p
+					JOIN subscriptions s ON s.plan_code = p.code
+					JOIN projects proj ON proj.user_id = s.user_id
+					JOIN jobs j ON j.project_id = proj.id
+					WHERE j.id = e.job_id
+					  AND s.status IN ('active', 'trialing')
+				),
+				(
+					SELECT p.logs_retention_days
+					FROM plans p
+					WHERE p.code = 'starter'
+				)
+			) || ' days'
+		)::INTERVAL
+	`
+	result, err := r.db.ExecContext(ctx, query)
 	if err != nil {
-		return 0, fmt.Errorf("ExecutionRepository.DeleteOlderThan: %w", err)
+		return 0, fmt.Errorf("ExecutionRepository.DeleteExpiredExecutions: %w", err)
 	}
 	affected, _ := result.RowsAffected()
 	return affected, nil
