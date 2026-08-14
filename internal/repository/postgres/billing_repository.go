@@ -169,3 +169,96 @@ func (r *BillingRepository) MarkBillingEventProcessed(ctx context.Context, id st
 	_, err := r.db.ExecContext(ctx, query, id, errVal)
 	return err
 }
+
+// UpsertSubscription inserts or updates a subscription record in the database.
+func (r *BillingRepository) UpsertSubscription(ctx context.Context, sub *billing.Subscription) error {
+	query := `
+		INSERT INTO subscriptions (
+			user_id, plan_code, status, billing_provider, 
+			provider_customer_id, provider_subscription_id, 
+			current_period_start, current_period_end, cancel_at_period_end, 
+			updated_at, created_at
+		) VALUES (
+			$1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW()
+		)
+		ON CONFLICT (user_id) DO UPDATE SET
+			plan_code = EXCLUDED.plan_code,
+			status = EXCLUDED.status,
+			billing_provider = EXCLUDED.billing_provider,
+			provider_customer_id = EXCLUDED.provider_customer_id,
+			provider_subscription_id = EXCLUDED.provider_subscription_id,
+			current_period_start = EXCLUDED.current_period_start,
+			current_period_end = EXCLUDED.current_period_end,
+			cancel_at_period_end = EXCLUDED.cancel_at_period_end,
+			updated_at = NOW()
+		RETURNING id
+	`
+	var custID, subID sql.NullString
+	if sub.ProviderCustomerID != nil {
+		custID = sql.NullString{String: *sub.ProviderCustomerID, Valid: true}
+	}
+	if sub.ProviderSubscriptionID != nil {
+		subID = sql.NullString{String: *sub.ProviderSubscriptionID, Valid: true}
+	}
+	var pStart, pEnd sql.NullTime
+	if sub.CurrentPeriodStart != nil {
+		pStart = sql.NullTime{Time: *sub.CurrentPeriodStart, Valid: true}
+	}
+	if sub.CurrentPeriodEnd != nil {
+		pEnd = sql.NullTime{Time: *sub.CurrentPeriodEnd, Valid: true}
+	}
+
+	return r.db.QueryRowContext(ctx, query,
+		sub.UserID,
+		sub.PlanCode,
+		sub.Status,
+		sub.BillingProvider,
+		custID,
+		subID,
+		pStart,
+		pEnd,
+		sub.CancelAtPeriodEnd,
+	).Scan(&sub.ID)
+}
+
+// GetSubscriptionByProviderSubID retrieves a subscription record using the Stripe subscription ID.
+func (r *BillingRepository) GetSubscriptionByProviderSubID(ctx context.Context, providerSubID string) (*billing.Subscription, error) {
+	query := `
+		SELECT id, user_id, plan_code, status, billing_provider, 
+		       provider_customer_id, provider_subscription_id, 
+		       current_period_start, current_period_end, cancel_at_period_end, 
+		       updated_at, created_at
+		FROM subscriptions
+		WHERE provider_subscription_id = $1 LIMIT 1
+	`
+	sub := &billing.Subscription{}
+	var custID, subID sql.NullString
+	var pStart, pEnd sql.NullTime
+
+	err := r.db.QueryRowContext(ctx, query, providerSubID).Scan(
+		&sub.ID, &sub.UserID, &sub.PlanCode, &sub.Status, &sub.BillingProvider,
+		&custID, &subID, &pStart, &pEnd, &sub.CancelAtPeriodEnd,
+		&sub.UpdatedAt, &sub.CreatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	if custID.Valid {
+		sub.ProviderCustomerID = &custID.String
+	}
+	if subID.Valid {
+		sub.ProviderSubscriptionID = &subID.String
+	}
+	if pStart.Valid {
+		sub.CurrentPeriodStart = &pStart.Time
+	}
+	if pEnd.Valid {
+		sub.CurrentPeriodEnd = &pEnd.Time
+	}
+
+	return sub, nil
+}

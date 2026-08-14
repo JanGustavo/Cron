@@ -37,6 +37,10 @@ type Config struct {
 	SmtpFrom           string
 	SchedulerInterval  string
 	WorkerConcurrency  int
+	StripePublishableKey string
+	StripeSecretKey      string
+	StripeWebhookSecret  string
+	StripePriceIDPro     string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -68,6 +72,10 @@ func Load() *Config {
 		SmtpFrom:           getEnv("SMTP_FROM", "no-reply@cronflow.me"),
 		SchedulerInterval:  getEnv("SCHEDULER_INTERVAL", "30s"),
 		WorkerConcurrency:  getEnvAsInt("WORKER_CONCURRENCY", 50),
+		StripePublishableKey: getEnv("STRIPE_PUBLISHABLE_KEY", ""),
+		StripeSecretKey:      getEnv("STRIPE_SECRET_KEY", ""),
+		StripeWebhookSecret:  getEnv("STRIPE_WEBHOOK_SECRET", ""),
+		StripePriceIDPro:     getEnv("STRIPE_PRICE_ID_PRO", ""),
 	}
 
 	// -------------------------------------------------------------

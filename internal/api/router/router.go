@@ -21,6 +21,7 @@ func New(
 	agentHandler *handler.AgentHandler,
 	pixHandler *handler.PixHandler,
 	metricsHandler *handler.MetricsHandler,
+	billingHandler *handler.BillingHandler,
 	entitlementEngine *service.EntitlementEngine,
 	jwtSecret string,
 ) *chi.Mux {
@@ -48,6 +49,9 @@ func New(
 	r.Get("/v1/auth/oauth/github", authHandler.OAuthGitHub)
 	r.Get("/v1/auth/oauth/github/callback", authHandler.OAuthGitHubCallback)
 
+	// Webhook Stripe publico
+	r.Post("/v1/billing/webhook", billingHandler.Webhook)
+
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(userRepo, jwtSecret))
@@ -67,6 +71,10 @@ func New(
 
 		r.Get("/v1/pix/valores", pixHandler.ListValores)
 		r.Get("/v1/pix/qr", pixHandler.GenerateQR)
+
+		// Stripe Billing Session Endpoints
+		r.Post("/v1/billing/checkout", billingHandler.CreateCheckoutSession)
+		r.Post("/v1/billing/portal", billingHandler.CreatePortalSession)
 
 		r.Route("/v1/keys", func(r chi.Router) {
 			r.Get("/", authHandler.ListAPIKeys)

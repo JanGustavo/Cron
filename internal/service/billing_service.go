@@ -15,6 +15,8 @@ type BillingRepository interface {
 	CreateBillingEvent(ctx context.Context, event *billing.BillingEvent) error
 	FindBillingEventByProviderID(ctx context.Context, provider, providerEventID string) (*billing.BillingEvent, error)
 	MarkBillingEventProcessed(ctx context.Context, id string, errStr *string) error
+	UpsertSubscription(ctx context.Context, sub *billing.Subscription) error
+	GetSubscriptionByProviderSubID(ctx context.Context, providerSubID string) (*billing.Subscription, error)
 }
 
 type EntitlementEngine struct {
@@ -89,4 +91,19 @@ func (e *EntitlementEngine) RegisterBillingEvent(ctx context.Context, provider, 
 // MarkEventProcessed updates the status of the event to processed with optional error.
 func (e *EntitlementEngine) MarkEventProcessed(ctx context.Context, eventID string, errStr *string) error {
 	return e.repo.MarkBillingEventProcessed(ctx, eventID, errStr)
+}
+
+// UpsertSubscription inserts or updates a subscription in the database.
+func (e *EntitlementEngine) UpsertSubscription(ctx context.Context, sub *billing.Subscription) error {
+	return e.repo.UpsertSubscription(ctx, sub)
+}
+
+// GetSubscriptionByProviderSubID retrieves a subscription record using the Stripe subscription ID.
+func (e *EntitlementEngine) GetSubscriptionByProviderSubID(ctx context.Context, providerSubID string) (*billing.Subscription, error) {
+	return e.repo.GetSubscriptionByProviderSubID(ctx, providerSubID)
+}
+
+// GetSubscription retrieves subscription details for a given user.
+func (e *EntitlementEngine) GetSubscription(ctx context.Context, userID string) (*billing.Subscription, error) {
+	return e.repo.GetSubscription(ctx, userID)
 }

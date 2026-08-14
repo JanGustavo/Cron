@@ -129,9 +129,10 @@ func main() {
 	agentHandler := handler.NewAgentHandler(jobService, cfg)
 	pixHandler := handler.NewPixHandler()
 	metricsHandler := handler.NewMetricsHandler(cfg.RedisURL)
+	billingHandler := handler.NewBillingHandler(entitlementEngine, cfg)
 
 	// Router
-	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, entitlementEngine, cfg.JWTSecret)
+	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, billingHandler, entitlementEngine, cfg.JWTSecret)
 
 	// 5. sobe o servidor
 	log.Printf("API rodando em http://localhost:%s", cfg.Port)
