@@ -43,7 +43,7 @@ func (h *ExecutionHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	// Verifica que o job pertence ao projeto autenticado
 	if _, err := h.jobService.GetByID(r.Context(), jobID, proj.ID); err != nil {
-		writeError(w, http.StatusNotFound, "job não encontrado")
+		writeError(w, http.StatusNotFound, "Job não encontrado")
 		return
 	}
 
@@ -56,7 +56,7 @@ func (h *ExecutionHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	executions, err := h.executionRepo.ListByJob(r.Context(), jobID, limit)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao buscar execuções")
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar execuções")
 		return
 	}
 
@@ -110,7 +110,7 @@ func (h *ExecutionHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 		endDate,
 	)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao buscar execuções globais")
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar execuções globais")
 		return
 	}
 

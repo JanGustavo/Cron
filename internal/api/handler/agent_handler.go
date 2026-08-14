@@ -260,13 +260,13 @@ Regras de Comportamento:
 func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "autorização inválida")
+		writeError(w, http.StatusUnauthorized, "Autorização inválida")
 		return
 	}
 
 	limits, err := h.jobService.EntitlementEngine.GetUserLimits(r.Context(), proj.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano")
+		writeError(w, http.StatusInternalServerError, "Erro ao obter limites do plano")
 		return
 	}
 
@@ -283,12 +283,12 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	var input AgentChatRequest
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "body invalido")
+		writeError(w, http.StatusBadRequest, "Body invalido")
 		return
 	}
 
 	if h.cfg.GeminiAPIKey == "" && h.cfg.GroqAPIKey == "" {
-		writeError(w, http.StatusInternalServerError, "chaves de api do gemini/groq nao configuradas no backend")
+		writeError(w, http.StatusInternalServerError, "Chaves de api do gemini/groq nao configuradas no backend")
 		return
 	}
 
@@ -311,7 +311,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		reply, updatedHistory, err := h.runGroqChat(ctx, proj.ID, history)
 		if err != nil {
 			log.Printf("ERROR Groq Chat Execution: %v", err)
-			writeError(w, http.StatusInternalServerError, "erro ao processar requisicao com Groq")
+			writeError(w, http.StatusInternalServerError, "Erro ao processar requisicao com Groq")
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
@@ -337,14 +337,14 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		reqBytes, err := json.Marshal(geminiReq)
 		if err != nil {
 			log.Printf("ERROR Gemini Marshal: %v", err)
-			writeError(w, http.StatusInternalServerError, "erro ao processar requisicao do agente")
+			writeError(w, http.StatusInternalServerError, "Erro ao processar requisicao do agente")
 			return
 		}
 
 		req, err := http.NewRequestWithContext(ctx, "POST", geminiUrl, bytes.NewReader(reqBytes))
 		if err != nil {
 			log.Printf("ERROR Gemini Request Creation: %v", err)
-			writeError(w, http.StatusInternalServerError, "erro ao criar chamada para IA")
+			writeError(w, http.StatusInternalServerError, "Erro ao criar chamada para IA")
 			return
 		}
 		req.Header.Set("Content-Type", "application/json")
@@ -366,7 +366,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 				reply, updatedHistory, err := h.runGroqChat(ctx, proj.ID, history)
 				if err != nil {
 					log.Printf("ERROR Groq Fallback Execution: %v", err)
-					writeError(w, http.StatusInternalServerError, "erro ao processar requisicao via Groq fallback")
+					writeError(w, http.StatusInternalServerError, "Erro ao processar requisicao via Groq fallback")
 					return
 				}
 				writeJSON(w, http.StatusOK, map[string]any{
@@ -376,7 +376,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writeError(w, http.StatusInternalServerError, "ia respondeu com erro ou limite atingido")
+			writeError(w, http.StatusInternalServerError, "Ia respondeu com erro ou limite atingido")
 			return
 		}
 		defer resp.Body.Close()
@@ -384,12 +384,12 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		var geminiResp GeminiResponse
 		if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
 			log.Printf("ERROR Gemini Response Decode: %v", err)
-			writeError(w, http.StatusInternalServerError, "erro ao decodificar resposta da IA")
+			writeError(w, http.StatusInternalServerError, "Erro ao decodificar resposta da IA")
 			return
 		}
 
 		if len(geminiResp.Candidates) == 0 {
-			writeError(w, http.StatusInternalServerError, "ia nao retornou nenhuma resposta")
+			writeError(w, http.StatusInternalServerError, "Ia nao retornou nenhuma resposta")
 			return
 		}
 
@@ -442,7 +442,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeError(w, http.StatusInternalServerError, "excedeu o limite de chamadas de funcao do agente")
+	writeError(w, http.StatusInternalServerError, "Excedeu o limite de chamadas de funcao do agente")
 }
 
 func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name string, args map[string]any) (any, error) {

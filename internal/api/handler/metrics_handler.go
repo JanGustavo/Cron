@@ -68,7 +68,7 @@ func (h *MetricsHandler) QueueMetrics(w http.ResponseWriter, r *http.Request) {
 
 	queues, err := inspector.Queues()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao listar filas do Redis")
+		writeError(w, http.StatusInternalServerError, "Erro ao listar filas do Redis")
 		return
 	}
 

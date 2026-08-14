@@ -52,13 +52,13 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "body invalido")
+		writeError(w, http.StatusBadRequest, "Body invalido")
 		return
 	}
 
 	// Validacoes basicas de campo obrigatorio
 	if input.Name == "" || input.Schedule == "" || input.URL == "" {
-		writeError(w, http.StatusBadRequest, "name, schedule e url sao obrigatorios")
+		writeError(w, http.StatusBadRequest, "Name, schedule e url sao obrigatorios")
 		return
 	}
 
@@ -86,9 +86,9 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 		case errors.Is(err, service.ErrInvalidSchedule):
 			writeError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, service.ErrJobLimitReached):
-			writeError(w, http.StatusForbidden, "limite de jobs do plano atingido - faca upgrade")
+			writeError(w, http.StatusForbidden, "Limite de jobs do plano atingido - faca upgrade")
 		default:
-			writeError(w, http.StatusInternalServerError, "erro ao criar job")
+			writeError(w, http.StatusInternalServerError, "Erro ao criar job")
 		}
 		return
 	}
@@ -111,7 +111,7 @@ func (h *JobHandler) List(w http.ResponseWriter, r *http.Request) {
 
 	jobs, err := h.jobService.List(r.Context(), proj.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao listar jobs")
+		writeError(w, http.StatusInternalServerError, "Erro ao listar jobs")
 		return
 	}
 
@@ -139,11 +139,11 @@ func (h *JobHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrJobNotFound):
-			writeError(w, http.StatusNotFound, "job nao encontrado")
+			writeError(w, http.StatusNotFound, "Job nao encontrado")
 		case errors.Is(err, service.ErrUnauthorized):
-			writeError(w, http.StatusForbidden, "acesso negado")
+			writeError(w, http.StatusForbidden, "Acesso negado")
 		default:
-			writeError(w, http.StatusInternalServerError, "erro ao buscar job")
+			writeError(w, http.StatusInternalServerError, "Erro ao buscar job")
 		}
 		return
 	}
@@ -173,22 +173,22 @@ func (h *JobHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 		Status string `json:"status"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "body invalido")
+		writeError(w, http.StatusBadRequest, "Body invalido")
 		return
 	}
 
 	status := job.Status(input.Status)
 	if status != job.StatusActive && status != job.StatusPaused {
-		writeError(w, http.StatusBadRequest, "status deve ser 'active' ou 'paused'")
+		writeError(w, http.StatusBadRequest, "Status deve ser 'active' ou 'paused'")
 		return
 	}
 
 	if err := h.jobService.UpdateStatus(r.Context(), id, proj.ID, status); err != nil {
 		switch {
 		case errors.Is(err, service.ErrJobNotFound):
-			writeError(w, http.StatusNotFound, "job nao encontrado")
+			writeError(w, http.StatusNotFound, "Job nao encontrado")
 		default:
-			writeError(w, http.StatusInternalServerError, "erro ao atualizar status")
+			writeError(w, http.StatusInternalServerError, "Erro ao atualizar status")
 		}
 		return
 	}
@@ -214,9 +214,9 @@ func (h *JobHandler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err := h.jobService.Delete(r.Context(), id, proj.ID); err != nil {
 		switch {
 		case errors.Is(err, service.ErrJobNotFound):
-			writeError(w, http.StatusNotFound, "job nao encontrado")
+			writeError(w, http.StatusNotFound, "Job nao encontrado")
 		default:
-			writeError(w, http.StatusInternalServerError, "erro ao deletar job")
+			writeError(w, http.StatusInternalServerError, "Erro ao deletar job")
 		}
 		return
 	}
@@ -245,11 +245,11 @@ func (h *JobHandler) TriggerNow(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrJobNotFound):
-			writeError(w, http.StatusNotFound, "job nao encontrado")
+			writeError(w, http.StatusNotFound, "Job nao encontrado")
 		case errors.Is(err, service.ErrUnauthorized):
-			writeError(w, http.StatusForbidden, "acesso negado")
+			writeError(w, http.StatusForbidden, "Acesso negado")
 		default:
-			writeError(w, http.StatusInternalServerError, "erro ao disparar tarefa")
+			writeError(w, http.StatusInternalServerError, "Erro ao disparar tarefa")
 		}
 		return
 	}
@@ -293,12 +293,12 @@ func (h *JobHandler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
-		writeError(w, http.StatusBadRequest, "body invalido")
+		writeError(w, http.StatusBadRequest, "Body invalido")
 		return
 	}
 
 	if input.Name == "" || input.Schedule == "" || input.URL == "" {
-		writeError(w, http.StatusBadRequest, "name, schedule e url sao obrigatorios")
+		writeError(w, http.StatusBadRequest, "Name, schedule e url sao obrigatorios")
 		return
 	}
 
@@ -319,11 +319,11 @@ func (h *JobHandler) Update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		switch {
 		case errors.Is(err, service.ErrJobNotFound):
-			writeError(w, http.StatusNotFound, "job nao encontrado")
+			writeError(w, http.StatusNotFound, "Job nao encontrado")
 		case errors.Is(err, service.ErrInvalidSchedule):
 			writeError(w, http.StatusBadRequest, err.Error())
 		default:
-			writeError(w, http.StatusInternalServerError, "erro ao atualizar job")
+			writeError(w, http.StatusInternalServerError, "Erro ao atualizar job")
 		}
 		return
 	}

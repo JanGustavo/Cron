@@ -43,13 +43,13 @@ type checkoutReq struct {
 func (h *BillingHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	var req checkoutReq
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
+		writeError(w, http.StatusBadRequest, "Corpo da requisição inválido")
 		return
 	}
 
@@ -85,7 +85,7 @@ func (h *BillingHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Re
 	sess, err := checkoutsession.New(params)
 	if err != nil {
 		log.Printf("Erro ao criar Checkout Session Stripe: %v", err)
-		writeError(w, http.StatusInternalServerError, "erro ao criar sessão de checkout de pagamentos")
+		writeError(w, http.StatusInternalServerError, "Erro ao criar sessão de checkout de pagamentos")
 		return
 	}
 
@@ -100,18 +100,18 @@ func (h *BillingHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Re
 func (h *BillingHandler) CreatePortalSession(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	sub, err := h.entitlementEngine.GetSubscription(r.Context(), proj.UserID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao consultar assinatura do usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao consultar assinatura do usuário")
 		return
 	}
 
 	if sub == nil || sub.ProviderCustomerID == nil || *sub.ProviderCustomerID == "" {
-		writeError(w, http.StatusBadRequest, "usuário não possui uma assinatura ativa no Stripe")
+		writeError(w, http.StatusBadRequest, "Usuário não possui uma assinatura ativa no Stripe")
 		return
 	}
 
@@ -124,7 +124,7 @@ func (h *BillingHandler) CreatePortalSession(w http.ResponseWriter, r *http.Requ
 	sess, err := portalsession.New(params)
 	if err != nil {
 		log.Printf("Erro ao criar Portal Session Stripe: %v", err)
-		writeError(w, http.StatusInternalServerError, "erro ao criar portal de gerenciamento de assinaturas")
+		writeError(w, http.StatusInternalServerError, "Erro ao criar portal de gerenciamento de assinaturas")
 		return
 	}
 
@@ -141,7 +141,7 @@ func (h *BillingHandler) Webhook(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, MaxBodySize)
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "corpo da requisição muito longo ou inválido")
+		writeError(w, http.StatusBadRequest, "Corpo da requisição muito longo ou inválido")
 		return
 	}
 
@@ -149,7 +149,7 @@ func (h *BillingHandler) Webhook(w http.ResponseWriter, r *http.Request) {
 	event, err := webhook.ConstructEvent(payload, sigHeader, h.cfg.StripeWebhookSecret)
 	if err != nil {
 		log.Printf("Erro ao validar assinatura do Webhook Stripe: %v", err)
-		writeError(w, http.StatusBadRequest, "assinatura de webhook inválida")
+		writeError(w, http.StatusBadRequest, "Assinatura de webhook inválida")
 		return
 	}
 
@@ -164,7 +164,7 @@ func (h *BillingHandler) Webhook(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		log.Printf("Erro ao registrar evento de billing: %v", err)
-		writeError(w, http.StatusInternalServerError, "erro interno ao processar transação")
+		writeError(w, http.StatusInternalServerError, "Erro interno ao processar transação")
 		return
 	}
 
@@ -253,7 +253,7 @@ func (h *BillingHandler) Webhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if processingError != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao concluir regras de negócio do webhook")
+		writeError(w, http.StatusInternalServerError, "Erro ao concluir regras de negócio do webhook")
 		return
 	}
 

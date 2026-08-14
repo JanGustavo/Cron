@@ -144,69 +144,69 @@ func isValidCPF(cpf string) bool {
 func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	var req SignupRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "payload inválido")
+		writeError(w, http.StatusBadRequest, "Payload inválido")
 		return
 	}
 
 	if req.Email == "" || req.Password == "" || req.ProjectName == "" || req.FullName == "" || req.CPF == "" {
-		writeError(w, http.StatusBadRequest, "todos os campos (email, password, project_name, full_name, cpf) são obrigatórios")
+		writeError(w, http.StatusBadRequest, "Todos os campos (email, password, project_name, full_name, cpf) são obrigatórios")
 		return
 	}
 
 	// 1. Valida o formato do CPF
 	cleanCPF := cpfRegexp.ReplaceAllString(req.CPF, "")
 	if !isValidCPF(cleanCPF) {
-		writeError(w, http.StatusBadRequest, "cpf inválido. certifique-se de digitar um cpf real.")
+		writeError(w, http.StatusBadRequest, "Cpf inválido. certifique-se de digitar um cpf real.")
 		return
 	}
 
 	// 2. Verifica se usuário já existe
 	existingUser, err := h.userRepo.FindByEmail(r.Context(), req.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao verificar email existente")
+		writeError(w, http.StatusInternalServerError, "Erro ao verificar email existente")
 		return
 	}
 	if existingUser != nil {
-		writeError(w, http.StatusConflict, "este e-mail já está sendo utilizado")
+		writeError(w, http.StatusConflict, "Este e-mail já está sendo utilizado")
 		return
 	}
 
 	// 3. Verifica se CPF já foi cadastrado para evitar duplicidade de contas (fraude de free-tier)
 	existingCPF, err := h.userRepo.FindByCPF(r.Context(), cleanCPF)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao verificar CPF existente")
+		writeError(w, http.StatusInternalServerError, "Erro ao verificar CPF existente")
 		return
 	}
 	if existingCPF != nil {
-		writeError(w, http.StatusConflict, "este CPF já está cadastrado em outra conta")
+		writeError(w, http.StatusConflict, "Este CPF já está cadastrado em outra conta")
 		return
 	}
 
 	// 4. Calcula hash da senha
 	pwdHash, err := auth.HashPassword(req.Password)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao processar senha")
+		writeError(w, http.StatusInternalServerError, "Erro ao processar senha")
 		return
 	}
 
 	// 5. Cria usuário com CPF
 	u, err := h.userRepo.CreateUserWithPassword(r.Context(), req.Email, pwdHash, req.FullName, cleanCPF)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao criar usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao criar usuário")
 		return
 	}
 
 	// 4. Cria projeto padrão
 	_, err = h.userRepo.CreateProject(r.Context(), u.ID, req.ProjectName)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao criar projeto inicial")
+		writeError(w, http.StatusInternalServerError, "Erro ao criar projeto inicial")
 		return
 	}
 
 	// 5. Gera token JWT de verificação válido por 24 horas
 	verifyToken, err := auth.GenerateToken(u.ID, u.Email, "", "", h.cfg.JWTSecret, 24*time.Hour)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao assinar token de verificação")
+		writeError(w, http.StatusInternalServerError, "Erro ao assinar token de verificação")
 		return
 	}
 
@@ -238,12 +238,12 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	var req LoginRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "payload inválido")
+		writeError(w, http.StatusBadRequest, "Payload inválido")
 		return
 	}
 
 	if req.Email == "" || req.Password == "" {
-		writeError(w, http.StatusBadRequest, "email e senha são obrigatórios")
+		writeError(w, http.StatusBadRequest, "Email e senha são obrigatórios")
 		return
 	}
 
@@ -251,23 +251,23 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	u, err := h.userRepo.FindByEmail(r.Context(), req.Email)
 	if err != nil {
 		log.Printf("[Auth] Erro ao buscar usuário %s: %v", req.Email, err)
-		writeError(w, http.StatusInternalServerError, "erro ao buscar usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar usuário")
 		return
 	}
 	if u == nil {
-		writeError(w, http.StatusUnauthorized, "credenciais inválidas")
+		writeError(w, http.StatusUnauthorized, "Credenciais inválidas")
 		return
 	}
 
 	// 2. Compara hash
 	if !auth.CheckPasswordHash(req.Password, u.PasswordHash) {
-		writeError(w, http.StatusUnauthorized, "credenciais inválidas")
+		writeError(w, http.StatusUnauthorized, "Credenciais inválidas")
 		return
 	}
 
 	// 2.5. Verifica se o e-mail foi confirmado
 	if !u.IsVerified {
-		writeError(w, http.StatusForbidden, "por favor, confirme seu e-mail antes de acessar a conta")
+		writeError(w, http.StatusForbidden, "Por favor, confirme seu e-mail antes de acessar a conta")
 		return
 	}
 
@@ -275,7 +275,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 	if err != nil {
 		log.Printf("[Auth] Erro ao buscar projetos para usuário %s (%s): %v", u.Email, u.ID, err)
-		writeError(w, http.StatusInternalServerError, "erro ao buscar projetos")
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar projetos")
 		return
 	}
 
@@ -304,14 +304,14 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	duration := 24 * time.Hour
 	jwtToken, err := auth.GenerateToken(u.ID, u.Email, activeProjectID, string(u.Plan), h.cfg.JWTSecret, duration)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar token de autenticação")
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar token de autenticação")
 		return
 	}
 
 	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
 	if err != nil {
 		log.Printf("[Auth] Erro ao buscar limites para usuário %s (%s): %v", u.Email, u.ID, err)
-		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano")
+		writeError(w, http.StatusInternalServerError, "Erro ao obter limites do plano")
 		return
 	}
 
@@ -359,50 +359,50 @@ type VerifyEmailRequest struct {
 func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	var req VerifyEmailRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "payload inválido")
+		writeError(w, http.StatusBadRequest, "Payload inválido")
 		return
 	}
 
 	if req.Token == "" {
-		writeError(w, http.StatusBadRequest, "o token de confirmação é obrigatório")
+		writeError(w, http.StatusBadRequest, "O token de confirmação é obrigatório")
 		return
 	}
 
 	// 1. Valida o token JWT e extrai os claims
 	claims, err := auth.ValidateToken(req.Token, h.cfg.JWTSecret)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "token de confirmação inválido ou expirado")
+		writeError(w, http.StatusUnauthorized, "Token de confirmação inválido ou expirado")
 		return
 	}
 
 	// 2. Busca o usuário
 	u, err := h.userRepo.FindByEmail(r.Context(), claims.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao buscar usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar usuário")
 		return
 	}
 	if u == nil {
-		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
 		return
 	}
 
 	// 3. Busca projetos do usuário
 	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao buscar projetos")
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar projetos")
 		return
 	}
 
 	if len(projects) == 0 {
 		_, err = h.userRepo.CreateProject(r.Context(), u.ID, "Projeto Principal")
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "erro ao criar projeto")
+			writeError(w, http.StatusInternalServerError, "Erro ao criar projeto")
 			return
 		}
 		// Recarrega os projetos
 		projects, err = h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "erro ao buscar projetos")
+			writeError(w, http.StatusInternalServerError, "Erro ao buscar projetos")
 			return
 		}
 	}
@@ -412,20 +412,20 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	// 4. Se não estiver verificado, ativa e gera a primeira chave de API
 	if !u.IsVerified {
 		if err := h.userRepo.UpdateVerified(r.Context(), u.ID, true); err != nil {
-			writeError(w, http.StatusInternalServerError, "erro ao ativar usuário")
+			writeError(w, http.StatusInternalServerError, "Erro ao ativar usuário")
 			return
 		}
 
 		apiKey, err = auth.Generate()
 		if err != nil {
-			writeError(w, http.StatusInternalServerError, "erro ao gerar chave de API")
+			writeError(w, http.StatusInternalServerError, "Erro ao gerar chave de API")
 			return
 		}
 
 		keyHash := auth.Hash(apiKey)
 		prefix := apiKey[:12]
 		if err := h.userRepo.CreateAPIKey(r.Context(), projects[0].ID, keyHash, prefix); err != nil {
-			writeError(w, http.StatusInternalServerError, "erro ao salvar chave de API")
+			writeError(w, http.StatusInternalServerError, "Erro ao salvar chave de API")
 			return
 		}
 	}
@@ -434,7 +434,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	duration := 24 * time.Hour
 	jwtToken, err := auth.GenerateToken(u.ID, u.Email, projects[0].ID, string(u.Plan), h.cfg.JWTSecret, duration)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao assinar token de autenticação")
+		writeError(w, http.StatusInternalServerError, "Erro ao assinar token de autenticação")
 		return
 	}
 
@@ -456,7 +456,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 
 	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano")
+		writeError(w, http.StatusInternalServerError, "Erro ao obter limites do plano")
 		return
 	}
 
@@ -505,36 +505,36 @@ type ResendVerificationRequest struct {
 func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request) {
 	var req ResendVerificationRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "payload inválido")
+		writeError(w, http.StatusBadRequest, "Payload inválido")
 		return
 	}
 
 	if req.Email == "" {
-		writeError(w, http.StatusBadRequest, "o e-mail é obrigatório")
+		writeError(w, http.StatusBadRequest, "O e-mail é obrigatório")
 		return
 	}
 
 	// 1. Busca o usuário
 	u, err := h.userRepo.FindByEmail(r.Context(), req.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao buscar usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar usuário")
 		return
 	}
 	if u == nil {
-		writeError(w, http.StatusNotFound, "este e-mail não está cadastrado")
+		writeError(w, http.StatusNotFound, "Este e-mail não está cadastrado")
 		return
 	}
 
 	// 2. Se já verificado, avisa
 	if u.IsVerified {
-		writeError(w, http.StatusConflict, "este e-mail já foi verificado e a conta está ativa")
+		writeError(w, http.StatusConflict, "Este e-mail já foi verificado e a conta está ativa")
 		return
 	}
 
 	// 3. Gera novo token de verificação
 	verifyToken, err := auth.GenerateToken(u.ID, u.Email, "", "", h.cfg.JWTSecret, 24*time.Hour)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar token de verificação")
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar token de verificação")
 		return
 	}
 
@@ -564,13 +564,13 @@ func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request)
 func (h *AuthHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	keys, err := h.userRepo.FindAPIKeysByProjectID(r.Context(), proj.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao listar chaves de api")
+		writeError(w, http.StatusInternalServerError, "Erro ao listar chaves de api")
 		return
 	}
 
@@ -590,20 +590,20 @@ func (h *AuthHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	apiKey, err := auth.Generate()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar chave de api")
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar chave de api")
 		return
 	}
 
 	keyHash := auth.Hash(apiKey)
 	prefix := apiKey[:12] // Exemplo: "cf_live_abcd"
 	if err := h.userRepo.CreateAPIKey(r.Context(), proj.ID, keyHash, prefix); err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao salvar nova chave de api")
+		writeError(w, http.StatusInternalServerError, "Erro ao salvar nova chave de api")
 		return
 	}
 
@@ -625,18 +625,18 @@ func (h *AuthHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "id da chave é obrigatório")
+		writeError(w, http.StatusBadRequest, "Id da chave é obrigatório")
 		return
 	}
 
 	if err := h.userRepo.DeleteAPIKey(r.Context(), id, proj.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao revogar chave de api: " + err.Error())
+		writeError(w, http.StatusInternalServerError, "Erro ao revogar chave de api: " + err.Error())
 		return
 	}
 
@@ -667,18 +667,18 @@ type ResetPasswordRequest struct {
 func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	var req ForgotPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "payload inválido")
+		writeError(w, http.StatusBadRequest, "Payload inválido")
 		return
 	}
 
 	if req.Email == "" {
-		writeError(w, http.StatusBadRequest, "o email é obrigatório")
+		writeError(w, http.StatusBadRequest, "O email é obrigatório")
 		return
 	}
 
 	u, err := h.userRepo.FindByEmail(r.Context(), req.Email)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro interno ao processar solicitação")
+		writeError(w, http.StatusInternalServerError, "Erro interno ao processar solicitação")
 		return
 	}
 
@@ -694,7 +694,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	// Gera token temporário de 15 minutos assinado
 	token, err := auth.GenerateToken(u.ID, u.Email, "", "", h.cfg.JWTSecret, 15*time.Minute)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar token de recuperação")
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar token de recuperação")
 		return
 	}
 
@@ -722,32 +722,32 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var req ResetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "payload inválido")
+		writeError(w, http.StatusBadRequest, "Payload inválido")
 		return
 	}
 
 	if req.Token == "" || req.NewPassword == "" {
-		writeError(w, http.StatusBadRequest, "token e nova senha são obrigatórios")
+		writeError(w, http.StatusBadRequest, "Token e nova senha são obrigatórios")
 		return
 	}
 
 	// Valida o token JWT e extrai os claims
 	claims, err := auth.ValidateToken(req.Token, h.cfg.JWTSecret)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "token de recuperação inválido ou expirado")
+		writeError(w, http.StatusUnauthorized, "Token de recuperação inválido ou expirado")
 		return
 	}
 
 	// Calcula o hash bcrypt da nova senha
 	newPwdHash, err := auth.HashPassword(req.NewPassword)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao processar nova senha")
+		writeError(w, http.StatusInternalServerError, "Erro ao processar nova senha")
 		return
 	}
 
 	// Salva a nova senha no banco
 	if err := h.userRepo.UpdatePassword(r.Context(), claims.UserID, newPwdHash); err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao atualizar senha no banco")
+		writeError(w, http.StatusInternalServerError, "Erro ao atualizar senha no banco")
 		return
 	}
 
@@ -1045,19 +1045,19 @@ func (h *AuthHandler) handleOAuthUser(w http.ResponseWriter, r *http.Request, em
 func (h *AuthHandler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	bytes := make([]byte, 16)
 	if _, err := rand.Read(bytes); err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar segredo aleatório")
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar segredo aleatório")
 		return
 	}
 	newSecret := "whsec_" + hex.EncodeToString(bytes)
 
 	if err := h.userRepo.UpdateProjectWebhookSecret(r.Context(), proj.ID, newSecret); err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao salvar novo segredo no banco")
+		writeError(w, http.StatusInternalServerError, "Erro ao salvar novo segredo no banco")
 		return
 	}
 
@@ -1111,29 +1111,29 @@ type ProfileResponse struct {
 func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	u, err := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao obter perfil do usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao obter perfil do usuário")
 		return
 	}
 	if u == nil {
-		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
 		return
 	}
 
 	totalJobsCreated, err := h.userRepo.CountAllJobsByUserID(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao contar jobs do usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao contar jobs do usuário")
 		return
 	}
 
 	userProjects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao obter projetos do usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao obter projetos do usuário")
 		return
 	}
 
@@ -1157,7 +1157,7 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 
 	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano do usuário")
+		writeError(w, http.StatusInternalServerError, "Erro ao obter limites do plano do usuário")
 		return
 	}
 
@@ -1202,13 +1202,13 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	var req UpdateProfileRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
+		writeError(w, http.StatusBadRequest, "Corpo da requisição inválido")
 		return
 	}
 
@@ -1218,31 +1218,31 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	// Valida se timezone existe
 	if _, err := time.LoadLocation(req.Timezone); err != nil {
-		writeError(w, http.StatusBadRequest, "timezone inválida")
+		writeError(w, http.StatusBadRequest, "Timezone inválida")
 		return
 	}
 	// Valida hora do digest
 	if req.DigestHour < 0 || req.DigestHour > 23 {
-		writeError(w, http.StatusBadRequest, "digest_hour deve ser entre 0 e 23")
+		writeError(w, http.StatusBadRequest, "Digest_hour deve ser entre 0 e 23")
 		return
 	}
 
 	// Busca o usuário para verificar
 	u, err := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
 	if err != nil || u == nil {
-		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
 		return
 	}
 
 	// Se for plano free, não pode ativar email_alerts_enabled (alertas imediatos)
 	if u.Plan == "free" && req.EmailAlertsEnabled {
-		writeError(w, http.StatusBadRequest, "alertas imediatos por e-mail estão disponíveis apenas no plano PRO")
+		writeError(w, http.StatusBadRequest, "Alertas imediatos por e-mail estão disponíveis apenas no plano PRO")
 		return
 	}
 
 	err = h.userRepo.UpdateEmailPreferences(r.Context(), u.ID, req.EmailAlertsEnabled, req.DailyDigestEnabled, req.Timezone, req.DigestHour)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao atualizar preferências")
+		writeError(w, http.StatusInternalServerError, "Erro ao atualizar preferências")
 		return
 	}
 
@@ -1272,38 +1272,38 @@ type CreateProjectRequest struct {
 func (h *AuthHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 	projContext := middleware.ProjectFromContext(r.Context())
 	if projContext == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	var req CreateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
+		writeError(w, http.StatusBadRequest, "Corpo da requisição inválido")
 		return
 	}
 
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "o nome do projeto não pode ser vazio")
+		writeError(w, http.StatusBadRequest, "O nome do projeto não pode ser vazio")
 		return
 	}
 
 	// Busca o usuário correspondente para validar o plano
 	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
 	if err != nil || u == nil {
-		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
 		return
 	}
 
 	// Limita os projetos conforme as regras dinâmicas do plano
 	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao verificar projetos existentes")
+		writeError(w, http.StatusInternalServerError, "Erro ao verificar projetos existentes")
 		return
 	}
 
 	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao verificar limites do plano")
+		writeError(w, http.StatusInternalServerError, "Erro ao verificar limites do plano")
 		return
 	}
 
@@ -1331,7 +1331,7 @@ func (h *AuthHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 
 	newProj, err := h.userRepo.CreateProject(r.Context(), u.ID, req.Name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao criar projeto")
+		writeError(w, http.StatusInternalServerError, "Erro ao criar projeto")
 		return
 	}
 
@@ -1346,49 +1346,49 @@ type UpdateProjectRequest struct {
 func (h *AuthHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 	projContext := middleware.ProjectFromContext(r.Context())
 	if projContext == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	projID := chi.URLParam(r, "id")
 	if projID == "" {
-		writeError(w, http.StatusBadRequest, "id do projeto é obrigatório")
+		writeError(w, http.StatusBadRequest, "Id do projeto é obrigatório")
 		return
 	}
 
 	var req UpdateProjectRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "corpo da requisição inválido")
+		writeError(w, http.StatusBadRequest, "Corpo da requisição inválido")
 		return
 	}
 
 	if req.Name == "" {
-		writeError(w, http.StatusBadRequest, "o nome do projeto não pode ser vazio")
+		writeError(w, http.StatusBadRequest, "O nome do projeto não pode ser vazio")
 		return
 	}
 
 	// Busca o usuário logado
 	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
 	if err != nil || u == nil {
-		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
 		return
 	}
 
 	// Busca o dono do projeto a ser editado
 	owner, err := h.userRepo.FindUserByProjectID(r.Context(), projID)
 	if err != nil || owner == nil {
-		writeError(w, http.StatusNotFound, "projeto não encontrado")
+		writeError(w, http.StatusNotFound, "Projeto não encontrado")
 		return
 	}
 
 	if owner.ID != u.ID {
-		writeError(w, http.StatusForbidden, "acesso negado")
+		writeError(w, http.StatusForbidden, "Acesso negado")
 		return
 	}
 
 	err = h.userRepo.UpdateProjectName(r.Context(), projID, req.Name)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao atualizar projeto")
+		writeError(w, http.StatusInternalServerError, "Erro ao atualizar projeto")
 		return
 	}
 
@@ -1401,49 +1401,49 @@ func (h *AuthHandler) UpdateProject(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 	projContext := middleware.ProjectFromContext(r.Context())
 	if projContext == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	projID := chi.URLParam(r, "id")
 	if projID == "" {
-		writeError(w, http.StatusBadRequest, "id do projeto é obrigatório")
+		writeError(w, http.StatusBadRequest, "Id do projeto é obrigatório")
 		return
 	}
 
 	// Busca o usuário logado
 	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
 	if err != nil || u == nil {
-		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
 		return
 	}
 
 	// Busca o dono do projeto a ser deletado
 	owner, err := h.userRepo.FindUserByProjectID(r.Context(), projID)
 	if err != nil || owner == nil {
-		writeError(w, http.StatusNotFound, "projeto não encontrado")
+		writeError(w, http.StatusNotFound, "Projeto não encontrado")
 		return
 	}
 
 	if owner.ID != u.ID {
-		writeError(w, http.StatusForbidden, "acesso negado")
+		writeError(w, http.StatusForbidden, "Acesso negado")
 		return
 	}
 
 	// Não deixa excluir o último projeto do usuário
 	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao verificar projetos")
+		writeError(w, http.StatusInternalServerError, "Erro ao verificar projetos")
 		return
 	}
 	if len(projects) <= 1 {
-		writeError(w, http.StatusForbidden, "não é possível excluir seu único projeto ativo")
+		writeError(w, http.StatusForbidden, "Não é possível excluir seu único projeto ativo")
 		return
 	}
 
 	err = h.userRepo.DeleteProject(r.Context(), projID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao excluir projeto")
+		writeError(w, http.StatusInternalServerError, "Erro ao excluir projeto")
 		return
 	}
 
@@ -1468,32 +1468,32 @@ func (h *AuthHandler) DeleteProject(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) SwitchProject(w http.ResponseWriter, r *http.Request) {
 	projContext := middleware.ProjectFromContext(r.Context())
 	if projContext == nil {
-		writeError(w, http.StatusUnauthorized, "não autorizado")
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
 		return
 	}
 
 	projID := chi.URLParam(r, "id")
 	if projID == "" {
-		writeError(w, http.StatusBadRequest, "id do projeto é obrigatório")
+		writeError(w, http.StatusBadRequest, "Id do projeto é obrigatório")
 		return
 	}
 
 	// Busca o usuário logado
 	u, err := h.userRepo.FindUserByProjectID(r.Context(), projContext.ID)
 	if err != nil || u == nil {
-		writeError(w, http.StatusNotFound, "usuário não encontrado")
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
 		return
 	}
 
 	// Busca o dono do projeto a ser alternado
 	owner, err := h.userRepo.FindUserByProjectID(r.Context(), projID)
 	if err != nil || owner == nil {
-		writeError(w, http.StatusNotFound, "projeto não encontrado")
+		writeError(w, http.StatusNotFound, "Projeto não encontrado")
 		return
 	}
 
 	if owner.ID != u.ID {
-		writeError(w, http.StatusForbidden, "acesso negado")
+		writeError(w, http.StatusForbidden, "Acesso negado")
 		return
 	}
 
@@ -1501,7 +1501,7 @@ func (h *AuthHandler) SwitchProject(w http.ResponseWriter, r *http.Request) {
 	duration := 24 * time.Hour
 	jwtToken, err := auth.GenerateToken(u.ID, u.Email, projID, string(u.Plan), h.cfg.JWTSecret, duration)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar novo token")
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar novo token")
 		return
 	}
 

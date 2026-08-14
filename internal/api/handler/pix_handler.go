@@ -64,7 +64,7 @@ func (h *PixHandler) GenerateQR(w http.ResponseWriter, r *http.Request) {
 
 	dataURI, payload, err := GerarQrPixB64(valor)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "erro ao gerar QR Code PIX")
+		writeError(w, http.StatusInternalServerError, "Erro ao gerar QR Code PIX")
 		return
 	}
 
