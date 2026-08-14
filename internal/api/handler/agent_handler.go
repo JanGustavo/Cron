@@ -288,7 +288,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if h.cfg.GeminiAPIKey == "" && h.cfg.GroqAPIKey == "" {
-		writeError(w, http.StatusInternalServerError, "Chaves de API do Gemini/Groq nao configuradas no backend")
+		writeError(w, http.StatusInternalServerError, "chaves de api do gemini/groq nao configuradas no backend")
 		return
 	}
 
@@ -376,7 +376,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writeError(w, http.StatusInternalServerError, "IA respondeu com erro ou limite atingido")
+			writeError(w, http.StatusInternalServerError, "ia respondeu com erro ou limite atingido")
 			return
 		}
 		defer resp.Body.Close()
@@ -389,7 +389,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		if len(geminiResp.Candidates) == 0 {
-			writeError(w, http.StatusInternalServerError, "IA nao retornou nenhuma resposta")
+			writeError(w, http.StatusInternalServerError, "ia nao retornou nenhuma resposta")
 			return
 		}
 

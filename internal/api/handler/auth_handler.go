@@ -156,7 +156,7 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	// 1. Valida o formato do CPF
 	cleanCPF := cpfRegexp.ReplaceAllString(req.CPF, "")
 	if !isValidCPF(cleanCPF) {
-		writeError(w, http.StatusBadRequest, "CPF inválido. Certifique-se de digitar um CPF real.")
+		writeError(w, http.StatusBadRequest, "cpf inválido. certifique-se de digitar um cpf real.")
 		return
 	}
 
@@ -267,7 +267,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// 2.5. Verifica se o e-mail foi confirmado
 	if !u.IsVerified {
-		writeError(w, http.StatusForbidden, "Por favor, confirme seu e-mail antes de acessar a conta")
+		writeError(w, http.StatusForbidden, "por favor, confirme seu e-mail antes de acessar a conta")
 		return
 	}
 
@@ -371,7 +371,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	// 1. Valida o token JWT e extrai os claims
 	claims, err := auth.ValidateToken(req.Token, h.cfg.JWTSecret)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Token de confirmação inválido ou expirado")
+		writeError(w, http.StatusUnauthorized, "token de confirmação inválido ou expirado")
 		return
 	}
 
@@ -564,13 +564,13 @@ func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request)
 func (h *AuthHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		writeError(w, http.StatusUnauthorized, "não autorizado")
 		return
 	}
 
 	keys, err := h.userRepo.FindAPIKeysByProjectID(r.Context(), proj.ID)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao listar chaves de API")
+		writeError(w, http.StatusInternalServerError, "erro ao listar chaves de api")
 		return
 	}
 
@@ -586,23 +586,24 @@ func (h *AuthHandler) ListAPIKeys(w http.ResponseWriter, r *http.Request) {
 // @Security ApiKeyAuth
 // @Success 200 {object} map[string]string "Nova chave criada"
 // @Router /v1/keys [post]
+// @Router /v1/keys [post]
 func (h *AuthHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		writeError(w, http.StatusUnauthorized, "não autorizado")
 		return
 	}
 
 	apiKey, err := auth.Generate()
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao gerar chave de API")
+		writeError(w, http.StatusInternalServerError, "erro ao gerar chave de api")
 		return
 	}
 
 	keyHash := auth.Hash(apiKey)
 	prefix := apiKey[:12] // Exemplo: "cf_live_abcd"
 	if err := h.userRepo.CreateAPIKey(r.Context(), proj.ID, keyHash, prefix); err != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao salvar nova chave de API")
+		writeError(w, http.StatusInternalServerError, "erro ao salvar nova chave de api")
 		return
 	}
 
@@ -624,18 +625,18 @@ func (h *AuthHandler) CreateAPIKey(w http.ResponseWriter, r *http.Request) {
 func (h *AuthHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
-		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		writeError(w, http.StatusUnauthorized, "não autorizado")
 		return
 	}
 
 	id := chi.URLParam(r, "id")
 	if id == "" {
-		writeError(w, http.StatusBadRequest, "ID da chave é obrigatório")
+		writeError(w, http.StatusBadRequest, "id da chave é obrigatório")
 		return
 	}
 
 	if err := h.userRepo.DeleteAPIKey(r.Context(), id, proj.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao revogar chave de API: " + err.Error())
+		writeError(w, http.StatusInternalServerError, "erro ao revogar chave de api: " + err.Error())
 		return
 	}
 
@@ -733,7 +734,7 @@ func (h *AuthHandler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	// Valida o token JWT e extrai os claims
 	claims, err := auth.ValidateToken(req.Token, h.cfg.JWTSecret)
 	if err != nil {
-		writeError(w, http.StatusUnauthorized, "Token de recuperação inválido ou expirado")
+		writeError(w, http.StatusUnauthorized, "token de recuperação inválido ou expirado")
 		return
 	}
 
