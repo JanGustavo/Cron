@@ -7,6 +7,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/api/handler"
 	"github.com/JanGustavo/Cron/internal/api/middleware"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	"github.com/JanGustavo/Cron/internal/service"
 	_ "github.com/JanGustavo/Cron/docs"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
@@ -20,6 +21,7 @@ func New(
 	agentHandler *handler.AgentHandler,
 	pixHandler *handler.PixHandler,
 	metricsHandler *handler.MetricsHandler,
+	entitlementEngine *service.EntitlementEngine,
 	jwtSecret string,
 ) *chi.Mux {
 	r := chi.NewRouter()
@@ -74,7 +76,7 @@ func New(
 
 		r.Route("/v1/jobs", func(r chi.Router) {
 			r.Get("/", jobHandler.List)
-			r.Post("/", jobHandler.Create)
+			r.With(middleware.RequireJobEntitlement(entitlementEngine)).Post("/", jobHandler.Create)
 			r.Post("/{id}/trigger", jobHandler.TriggerNow)
 			r.Get("/{id}", jobHandler.GetByID)
 			r.Patch("/{id}", jobHandler.UpdateStatus)
