@@ -259,6 +259,26 @@ Regras de Comportamento:
 // @Router /v1/agent/chat [post]
 func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "autorização inválida")
+		return
+	}
+
+	limits, err := h.jobService.EntitlementEngine.GetUserLimits(r.Context(), proj.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao obter limites do plano")
+		return
+	}
+
+	if !limits.WorkflowsEnabled {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusPaymentRequired)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "O assistente de IA (Flow AI Copilot) é exclusivo para clientes do Plano PRO. Faça o upgrade da sua conta para continuar!",
+			"code":  "LIMIT_EXCEEDED",
+		})
+		return
+	}
 
 	var input AgentChatRequest
 

@@ -1293,21 +1293,37 @@ func (h *AuthHandler) CreateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Limita os projetos (máximo de 5 para PRO, máximo de 1 para Free/Starter)
+	// Limita os projetos conforme as regras dinâmicas do plano
 	projects, err := h.userRepo.FindProjectsByUserID(r.Context(), u.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "erro ao verificar projetos existentes")
 		return
 	}
 
-	if u.Plan == "paid" {
-		if len(projects) >= 5 {
-			writeError(w, http.StatusForbidden, "limite de 5 projetos atingido para o plano PRO")
+	limits, err := h.entitlementEngine.GetUserLimits(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "erro ao verificar limites do plano")
+		return
+	}
+
+	if !limits.MultiProjectEnabled {
+		if len(projects) >= 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Apenas usuários do plano PRO podem criar múltiplos projetos (workspaces). Faça o upgrade da sua conta para continuar!",
+				"code":  "LIMIT_EXCEEDED",
+			})
 			return
 		}
 	} else {
-		if len(projects) >= 1 {
-			writeError(w, http.StatusForbidden, "apenas usuários do plano PRO podem criar múltiplos projetos")
+		if len(projects) >= 5 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Limite de 5 projetos (workspaces) atingido para o plano PRO.",
+				"code":  "LIMIT_EXCEEDED",
+			})
 			return
 		}
 	}

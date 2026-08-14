@@ -15,16 +15,18 @@ import (
 
 // Erros de negócio exportados — o Handler decide o status HTTP de cada um.
 var (
-	ErrJobNotFound     = fmt.Errorf("job não encontrado")
-	ErrJobLimitReached = fmt.Errorf("limite de jobs do plano atingido")
-	ErrUnauthorized    = fmt.Errorf("job não pertence a este projeto")
-	ErrInvalidSchedule = fmt.Errorf("schedule inválido")
+	ErrJobNotFound            = fmt.Errorf("job não encontrado")
+	ErrJobLimitReached        = fmt.Errorf("limite de jobs do plano atingido")
+	ErrUnauthorized           = fmt.Errorf("job não pertence a este projeto")
+	ErrInvalidSchedule        = fmt.Errorf("schedule inválido")
+	ErrWorkflowsDisabled      = fmt.Errorf("workflows (encadeamento de tarefas) são exclusivos do Plano PRO. Faça o upgrade para utilizar")
+	ErrWebhookAlertsDisabled  = fmt.Errorf("alertas via webhook, Slack ou Discord são exclusivos do Plano PRO. Faça o upgrade para utilizar")
 )
 
 type JobService struct {
 	jobRepo           *postgres.JobRepository
 	userRepo          *postgres.UserRepository
-	entitlementEngine *EntitlementEngine
+	EntitlementEngine *EntitlementEngine
 	enqueuer          *queue.Enqueuer
 	cfg               *config.Config
 }
@@ -39,7 +41,7 @@ func NewJobService(
 	return &JobService{
 		jobRepo:           jobRepo,
 		userRepo:          userRepo,
-		entitlementEngine: entitlementEngine,
+		EntitlementEngine: entitlementEngine,
 		enqueuer:          enqueuer,
 		cfg:               cfg,
 	}
@@ -79,9 +81,17 @@ func (s *JobService) Create(ctx context.Context, input CreateJobInput) (*job.Job
 		return nil, fmt.Errorf("JobService.Create: erro ao buscar usuario: %w", err)
 	}
 
-	limits, err := s.entitlementEngine.GetUserLimits(ctx, u.ID)
+	limits, err := s.EntitlementEngine.GetUserLimits(ctx, u.ID)
 	if err != nil {
 		return nil, fmt.Errorf("JobService.Create: erro ao obter limites do plano: %w", err)
+	}
+
+	// 3.5. Valida restrições de features do plano (Workflows e Alertas)
+	if input.NextJobID != nil && *input.NextJobID != "" && !limits.WorkflowsEnabled {
+		return nil, ErrWorkflowsDisabled
+	}
+	if input.WebhookAlertURL != nil && *input.WebhookAlertURL != "" && !limits.AlertsWebhooksEnabled {
+		return nil, ErrWebhookAlertsDisabled
 	}
 
 	// 4. Calcula o primeiro next_run_at
@@ -207,6 +217,25 @@ func (s *JobService) Update(ctx context.Context, input UpdateJobInput) (*job.Job
 	j, err := s.GetByID(ctx, input.ID, input.ProjectID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Busca usuário e limites dinâmicos do plano
+	u, err := s.userRepo.FindUserByProjectID(ctx, input.ProjectID)
+	if err != nil {
+		return nil, fmt.Errorf("JobService.Update: erro ao buscar usuario: %w", err)
+	}
+
+	limits, err := s.EntitlementEngine.GetUserLimits(ctx, u.ID)
+	if err != nil {
+		return nil, fmt.Errorf("JobService.Update: erro ao obter limites do plano: %w", err)
+	}
+
+	// Valida restrições de features do plano (Workflows e Alertas)
+	if input.NextJobID != nil && *input.NextJobID != "" && !limits.WorkflowsEnabled {
+		return nil, ErrWorkflowsDisabled
+	}
+	if input.WebhookAlertURL != nil && *input.WebhookAlertURL != "" && !limits.AlertsWebhooksEnabled {
+		return nil, ErrWebhookAlertsDisabled
 	}
 
 	// Se o schedule mudou, valida e recalcula a próxima execução
