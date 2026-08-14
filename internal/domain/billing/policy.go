@@ -30,3 +30,15 @@ type Subscription struct {
 	UpdatedAt              time.Time  `json:"updated_at"`
 	CreatedAt              time.Time  `json:"created_at"`
 }
+
+type BillingEvent struct {
+	ID              string     `json:"id"`
+	Provider        string     `json:"provider"`
+	ProviderEventID string     `json:"provider_event_id"`
+	EventType       string     `json:"event_type"`
+	UserID          *string    `json:"user_id,omitempty"`
+	Payload         []byte     `json:"payload"`
+	ProcessedAt     *time.Time `json:"processed_at,omitempty"`
+	ProcessingError *string    `json:"processing_error,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+}

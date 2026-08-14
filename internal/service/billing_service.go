@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/JanGustavo/Cron/internal/domain/billing"
 )
@@ -11,6 +12,9 @@ type BillingRepository interface {
 	GetSubscription(ctx context.Context, userID string) (*billing.Subscription, error)
 	GetPlanLimits(ctx context.Context, planCode string) (*billing.PlanLimits, error)
 	CountActiveJobs(ctx context.Context, userID string) (int, error)
+	CreateBillingEvent(ctx context.Context, event *billing.BillingEvent) error
+	FindBillingEventByProviderID(ctx context.Context, provider, providerEventID string) (*billing.BillingEvent, error)
+	MarkBillingEventProcessed(ctx context.Context, id string, errStr *string) error
 }
 
 type EntitlementEngine struct {
@@ -53,4 +57,36 @@ func (e *EntitlementEngine) CheckJobCreation(ctx context.Context, userID string)
 	}
 
 	return nil
+}
+
+// RegisterBillingEvent registers an incoming webhook event from Stripe or Asaas, checking for duplicates.
+func (e *EntitlementEngine) RegisterBillingEvent(ctx context.Context, provider, eventID, eventType string, userID *string, payload []byte) (*billing.BillingEvent, bool, error) {
+	existing, err := e.repo.FindBillingEventByProviderID(ctx, provider, eventID)
+	if err != nil {
+		return nil, false, err
+	}
+	if existing != nil {
+		return existing, true, nil
+	}
+
+	event := &billing.BillingEvent{
+		Provider:        provider,
+		ProviderEventID: eventID,
+		EventType:       eventType,
+		UserID:          userID,
+		Payload:         payload,
+		CreatedAt:       time.Now(),
+	}
+
+	err = e.repo.CreateBillingEvent(ctx, event)
+	if err != nil {
+		return nil, false, err
+	}
+
+	return event, false, nil
+}
+
+// MarkEventProcessed updates the status of the event to processed with optional error.
+func (e *EntitlementEngine) MarkEventProcessed(ctx context.Context, eventID string, errStr *string) error {
+	return e.repo.MarkBillingEventProcessed(ctx, eventID, errStr)
 }

@@ -86,6 +86,19 @@ func main() {
 			UNIQUE(user_id)
 		);
 
+		CREATE TABLE IF NOT EXISTS billing_events (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			provider VARCHAR(32) NOT NULL,
+			provider_event_id VARCHAR(255) NOT NULL,
+			event_type VARCHAR(128) NOT NULL,
+			user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+			payload JSONB NOT NULL,
+			processed_at TIMESTAMP WITH TIME ZONE,
+			processing_error TEXT,
+			created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+			UNIQUE (provider, provider_event_id)
+		);
+
 		INSERT INTO plans (code, name, price_monthly, price_yearly, max_jobs, max_users, logs_retention_days, workflows_enabled, alerts_webhooks_enabled, multi_project_enabled)
 		VALUES 
 		('starter', 'Plano Starter', 0, 0, 5, 1, 7, FALSE, FALSE, FALSE),
