@@ -34,7 +34,7 @@ func (e *EntitlementEngine) GetUserLimits(ctx context.Context, userID string) (*
 		return nil, err
 	}
 
-	planCode := "starter"
+	planCode := "free"
 	if sub != nil && (sub.Status == "active" || sub.Status == "trialing") {
 		planCode = sub.PlanCode
 	}

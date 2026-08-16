@@ -170,7 +170,7 @@ func (s *AlertService) NotifyEmail(jobID, jobName string, failures, lastStatus i
 			JOIN projects p ON p.user_id = u.id
 			WHERE p.id = $1`, projectID).Scan(&userEmail, &plan, &emailAlertsEnabled)
 
-		if errUser == nil && plan == "paid" && emailAlertsEnabled {
+		if errUser == nil && plan == "pro" && emailAlertsEnabled {
 			var schedule, url, method string
 			errJob := s.db.QueryRowContext(ctx, `SELECT schedule, url, http_method FROM jobs WHERE id = $1`, jobID).Scan(&schedule, &url, &method)
 

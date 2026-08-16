@@ -37,7 +37,7 @@ func (r *BillingRepository) GetSubscription(ctx context.Context, userID string) 
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil // No subscription is fine, starter plan applies
+			return nil, nil // No subscription is fine, free plan applies
 		}
 		return nil, err
 	}

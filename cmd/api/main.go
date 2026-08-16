@@ -101,9 +101,18 @@ func main() {
 
 		INSERT INTO plans (code, name, price_monthly, price_yearly, max_jobs, max_users, logs_retention_days, workflows_enabled, alerts_webhooks_enabled, multi_project_enabled)
 		VALUES 
-		('starter', 'Plano Starter', 0, 0, 5, 1, 7, FALSE, FALSE, FALSE),
+		('free', 'Plano Free', 0, 0, 5, 1, 7, FALSE, FALSE, FALSE),
 		('pro', 'Plano Pro', 2900, 29000, 50, 3, 90, TRUE, TRUE, TRUE)
-		ON CONFLICT (code) DO NOTHING;
+		ON CONFLICT (code) DO UPDATE SET
+			name = EXCLUDED.name,
+			price_monthly = EXCLUDED.price_monthly,
+			price_yearly = EXCLUDED.price_yearly,
+			max_jobs = EXCLUDED.max_jobs,
+			max_users = EXCLUDED.max_users,
+			logs_retention_days = EXCLUDED.logs_retention_days,
+			workflows_enabled = EXCLUDED.workflows_enabled,
+			alerts_webhooks_enabled = EXCLUDED.alerts_webhooks_enabled,
+			multi_project_enabled = EXCLUDED.multi_project_enabled;
 	`)
 
 	// Repositories

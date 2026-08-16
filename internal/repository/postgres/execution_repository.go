@@ -178,7 +178,7 @@ func (r *ExecutionRepository) DeleteExpiredExecutions(ctx context.Context) (int6
 				(
 					SELECT p.logs_retention_days
 					FROM plans p
-					WHERE p.code = 'starter'
+					WHERE p.code = 'free'
 				)
 			) || ' days'
 		)::INTERVAL

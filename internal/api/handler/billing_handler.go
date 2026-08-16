@@ -223,8 +223,8 @@ func (h *BillingHandler) Webhook(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(event.Data.Raw, &stripeSub); err == nil {
 			existingSub, err := h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), stripeSub.ID)
 			if err == nil && existingSub != nil {
-				// Downgrade automático da conta do usuário para o plano Starter/Free
-				existingSub.PlanCode = "starter"
+				// Downgrade automático da conta do usuário para o plano Free
+				existingSub.PlanCode = "free"
 				existingSub.Status = "canceled"
 				existingSub.CancelAtPeriodEnd = false
 				

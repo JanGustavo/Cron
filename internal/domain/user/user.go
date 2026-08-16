@@ -12,7 +12,7 @@ type Plan string
 
 const (
 	PlanFree Plan = "free"
-	PlanPaid Plan = "paid"
+	PlanPaid Plan = "pro"
 )
 
 type User struct {
