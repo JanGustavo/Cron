@@ -33,11 +33,13 @@ func NewAuthHandler(userRepo *postgres.UserRepository, mailService *service.Mail
 }
 
 type SignupRequest struct {
-	Email       string `json:"email"`
-	Password    string `json:"password"`
-	ProjectName string `json:"project_name"`
-	FullName    string `json:"full_name"`
-	CPF         string `json:"cpf"`
+	Email        string `json:"email"`
+	Password     string `json:"password"`
+	ProjectName  string `json:"project_name"`
+	FullName     string `json:"full_name"`
+	CPF          string `json:"cpf"`
+	CNPJ         string `json:"cnpj,omitempty"`
+	DocumentType string `json:"document_type,omitempty"`
 }
 
 type LoginRequest struct {
@@ -79,14 +81,12 @@ type AuthResponse struct {
 var cpfRegexp = regexp.MustCompile(`[^\d]`)
 
 func isValidCPF(cpf string) bool {
-	// Remove caracteres não numéricos
 	cleanCPF := cpfRegexp.ReplaceAllString(cpf, "")
 
 	if len(cleanCPF) != 11 {
 		return false
 	}
 
-	// Verifica CPFs conhecidos inválidos
 	allSame := true
 	for i := 1; i < 11; i++ {
 		if cleanCPF[i] != cleanCPF[0] {
@@ -98,7 +98,6 @@ func isValidCPF(cpf string) bool {
 		return false
 	}
 
-	// Valida primeiro dígito verificador
 	sum := 0
 	for i := 0; i < 9; i++ {
 		sum += int(cleanCPF[i]-'0') * (10 - i)
@@ -112,7 +111,6 @@ func isValidCPF(cpf string) bool {
 		return false
 	}
 
-	// Valida segundo dígito verificador
 	sum = 0
 	for i := 0; i < 10; i++ {
 		sum += int(cleanCPF[i]-'0') * (11 - i)
@@ -127,6 +125,63 @@ func isValidCPF(cpf string) bool {
 	}
 
 	return true
+}
+
+func isValidCNPJ(cnpj string) bool {
+	cleanCNPJ := cpfRegexp.ReplaceAllString(cnpj, "")
+
+	if len(cleanCNPJ) != 14 {
+		return false
+	}
+
+	if strings.Repeat(string(cleanCNPJ[0]), 14) == cleanCNPJ {
+		return false
+	}
+
+	weights1 := []int{5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2}
+	weights2 := []int{6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2}
+
+	sum := 0
+	for i := 0; i < 12; i++ {
+		sum += int(cleanCNPJ[i]-'0') * weights1[i]
+	}
+	d1 := sum % 11
+	if d1 < 2 {
+		d1 = 0
+	} else {
+		d1 = 11 - d1
+	}
+	if int(cleanCNPJ[12]-'0') != d1 {
+		return false
+	}
+
+	sum = 0
+	for i := 0; i < 13; i++ {
+		sum += int(cleanCNPJ[i]-'0') * weights2[i]
+	}
+	d2 := sum % 11
+	if d2 < 2 {
+		d2 = 0
+	} else {
+		d2 = 11 - d2
+	}
+	if int(cleanCNPJ[13]-'0') != d2 {
+		return false
+	}
+
+	return true
+}
+
+func isValidTaxDocument(document, documentType string) bool {
+	documentType = strings.ToLower(documentType)
+	switch documentType {
+	case "cnpj":
+		return isValidCNPJ(document)
+	case "cpf":
+		return isValidCPF(document)
+	default:
+		return false
+	}
 }
 
 // Signup — POST /v1/auth/signup
@@ -148,14 +203,31 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Email == "" || req.Password == "" || req.ProjectName == "" || req.FullName == "" || req.CPF == "" {
-		writeError(w, http.StatusBadRequest, "Todos os campos (email, password, project_name, full_name, cpf) são obrigatórios")
+	if req.Email == "" || req.Password == "" || req.ProjectName == "" || req.FullName == "" {
+		writeError(w, http.StatusBadRequest, "Todos os campos (email, password, project_name, full_name) são obrigatórios")
 		return
 	}
 
-	// 1. Valida o formato do CPF
-	cleanCPF := cpfRegexp.ReplaceAllString(req.CPF, "")
-	if !isValidCPF(cleanCPF) {
+	documentType := strings.ToLower(strings.TrimSpace(req.DocumentType))
+	if documentType == "" {
+		documentType = "cpf"
+	}
+
+	documentValue := strings.TrimSpace(req.CPF)
+	if documentType == "cnpj" {
+		documentValue = strings.TrimSpace(req.CNPJ)
+	}
+	if documentValue == "" {
+		writeError(w, http.StatusBadRequest, "Documento obrigatório: informe CPF ou CNPJ válido.")
+		return
+	}
+
+	cleanDocument := cpfRegexp.ReplaceAllString(documentValue, "")
+	if !isValidTaxDocument(cleanDocument, documentType) {
+		if documentType == "cnpj" {
+			writeError(w, http.StatusBadRequest, "Cnpj inválido. certifique-se de digitar um cnpj real.")
+			return
+		}
 		writeError(w, http.StatusBadRequest, "Cpf inválido. certifique-se de digitar um cpf real.")
 		return
 	}
@@ -171,13 +243,17 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 3. Verifica se CPF já foi cadastrado para evitar duplicidade de contas (fraude de free-tier)
-	existingCPF, err := h.userRepo.FindByCPF(r.Context(), cleanCPF)
+	// 3. Verifica se o documento já foi cadastrado para evitar duplicidade de contas.
+	existingCPF, err := h.userRepo.FindByCPF(r.Context(), cleanDocument)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao verificar CPF existente")
+		writeError(w, http.StatusInternalServerError, "Erro ao verificar documento existente")
 		return
 	}
 	if existingCPF != nil {
+		if documentType == "cnpj" {
+			writeError(w, http.StatusConflict, "Este CNPJ já está cadastrado em outra conta")
+			return
+		}
 		writeError(w, http.StatusConflict, "Este CPF já está cadastrado em outra conta")
 		return
 	}
@@ -189,8 +265,8 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 5. Cria usuário com CPF
-	u, err := h.userRepo.CreateUserWithPassword(r.Context(), req.Email, pwdHash, req.FullName, cleanCPF)
+	// 5. Cria usuário com CPF/CNPJ
+	u, err := h.userRepo.CreateUserWithPassword(r.Context(), req.Email, pwdHash, req.FullName, cleanDocument)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Erro ao criar usuário")
 		return
@@ -286,10 +362,10 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		activeProjectID = projects[0].ID
 		for _, p := range projects {
 			projResponses = append(projResponses, ProjectResponse{
-				ID:            p.ID,
-				UserID:        p.UserID,
-				Name:          p.Name,
-				CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+				ID:        p.ID,
+				UserID:    p.UserID,
+				Name:      p.Name,
+				CreatedAt: p.CreatedAt.Format(time.RFC3339),
 				WebhookSecret: func() string {
 					if p.WebhookSecret != nil && *p.WebhookSecret != "" {
 						return *p.WebhookSecret
@@ -441,10 +517,10 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	var projResponses []ProjectResponse
 	for _, p := range projects {
 		projResponses = append(projResponses, ProjectResponse{
-			ID:            p.ID,
-			UserID:        p.UserID,
-			Name:          p.Name,
-			CreatedAt:     p.CreatedAt.Format(time.RFC3339),
+			ID:        p.ID,
+			UserID:    p.UserID,
+			Name:      p.Name,
+			CreatedAt: p.CreatedAt.Format(time.RFC3339),
 			WebhookSecret: func() string {
 				if p.WebhookSecret != nil && *p.WebhookSecret != "" {
 					return *p.WebhookSecret
@@ -551,8 +627,6 @@ func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-
-
 // ListAPIKeys — GET /v1/keys
 // @Summary Listar API Keys
 // @Description Retorna os metadados de todas as chaves de API ativas no projeto (id, prefixo, data de criação). O segredo em texto claro nunca é retornado.
@@ -636,7 +710,7 @@ func (h *AuthHandler) DeleteAPIKey(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.userRepo.DeleteAPIKey(r.Context(), id, proj.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao revogar chave de api: " + err.Error())
+		writeError(w, http.StatusInternalServerError, "Erro ao revogar chave de api: "+err.Error())
 		return
 	}
 
@@ -1024,7 +1098,7 @@ func (h *AuthHandler) handleOAuthUser(w http.ResponseWriter, r *http.Request, em
 	// 6. Redireciona o usuário para o frontend carregando os tokens na URL
 	redirectURL := fmt.Sprintf("%s/?oauth_token=%s&oauth_user_email=%s&oauth_user_id=%s",
 		h.cfg.FrontendURL, url.QueryEscape(jwtToken), url.QueryEscape(u.Email), url.QueryEscape(u.ID))
-	
+
 	if apiKey != "" {
 		redirectURL += fmt.Sprintf("&oauth_api_key=%s", url.QueryEscape(apiKey))
 	}
@@ -1509,5 +1583,3 @@ func (h *AuthHandler) SwitchProject(w http.ResponseWriter, r *http.Request) {
 		"token": jwtToken,
 	})
 }
-
-
