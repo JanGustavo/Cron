@@ -20,6 +20,28 @@ type ExecutionHandler struct {
 	executionRepo *postgres.ExecutionRepository
 }
 
+const (
+	defaultExecutionLimit = 50
+	maxExecutionLimit     = 50000
+)
+
+func normalizeExecutionLimit(raw string, fallback, maxLimit int) int {
+	if raw == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.Atoi(raw)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+
+	if parsed > maxLimit {
+		return maxLimit
+	}
+
+	return parsed
+}
+
 func NewExecutionHandler(jobService *service.JobService, executionRepo *postgres.ExecutionRepository) *ExecutionHandler {
 	return &ExecutionHandler{jobService: jobService, executionRepo: executionRepo}
 }
@@ -47,12 +69,7 @@ func (h *ExecutionHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	limit := 50
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
-			limit = parsed
-		}
-	}
+	limit := normalizeExecutionLimit(r.URL.Query().Get("limit"), defaultExecutionLimit, maxExecutionLimit)
 
 	executions, err := h.executionRepo.ListByJob(r.Context(), jobID, limit)
 	if err != nil {
