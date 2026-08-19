@@ -36,6 +36,7 @@ func NewBillingHandler(entitlementEngine *service.EntitlementEngine, cfg *config
 type checkoutReq struct {
 	SuccessURL string `json:"success_url"`
 	CancelURL  string `json:"cancel_url"`
+	Period     string `json:"period"` // "monthly" (padrão) ou "yearly"
 }
 
 // CreateCheckoutSession inicia a sessão de checkout segura da Stripe
@@ -62,12 +63,22 @@ func (h *BillingHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Re
 		cancelURL = h.cfg.FrontendURL + "/profile?canceled=true"
 	}
 
+	// Seleciona o Price ID conforme o período escolhido pelo usuário
+	priceID := h.cfg.StripePriceIDProMonthly
+	if req.Period == "yearly" {
+		priceID = h.cfg.StripePriceIDProYearly
+	}
+	if priceID == "" {
+		writeError(w, http.StatusInternalServerError, "Price ID do plano não configurado no servidor")
+		return
+	}
+
 	params := &stripe.CheckoutSessionParams{
 		PaymentMethodTypes: stripe.StringSlice([]string{"card"}),
 		Mode:               stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{
-				Price:    stripe.String(h.cfg.StripePriceIDPro),
+				Price:    stripe.String(priceID),
 				Quantity: stripe.Int64(1),
 			},
 		},

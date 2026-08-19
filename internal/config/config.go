@@ -40,7 +40,8 @@ type Config struct {
 	StripePublishableKey string
 	StripeSecretKey      string
 	StripeWebhookSecret  string
-	StripePriceIDPro     string
+	StripePriceIDProMonthly string
+	StripePriceIDProYearly  string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -50,7 +51,7 @@ func Load() *Config {
 	}
 
 	c := &Config{
-		AppEnv:             getEnv("APP_ENV", "development"),
+		AppEnv:             getEnv("APP_ENV", "development"), //env / fallback
 		Port:               getEnv("PORT", "8080"),
 		DatabaseURL:        mustGetEnv("DATABASE_URL"),
 		RedisURL:           getEnv("REDIS_URL", "redis://localhost:6379"),
@@ -75,7 +76,8 @@ func Load() *Config {
 		StripePublishableKey: getEnv("STRIPE_PUBLISHABLE_KEY", ""),
 		StripeSecretKey:      getEnv("STRIPE_SECRET_KEY", ""),
 		StripeWebhookSecret:  getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		StripePriceIDPro:     getEnv("STRIPE_PRICE_ID_PRO", ""),
+		StripePriceIDProMonthly: getEnv("STRIPE_PRICE_ID_PRO_MONTHLY", ""),
+		StripePriceIDProYearly:  getEnv("STRIPE_PRICE_ID_PRO_YEARLY", ""),
 	}
 
 	// -------------------------------------------------------------

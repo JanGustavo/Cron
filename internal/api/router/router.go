@@ -1,6 +1,8 @@
 package router
 
 import (
+	"net/http"
+
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
@@ -36,7 +38,9 @@ func New(
 
 	// Rotas publicas — sem autenticacao
 	r.Get("/health", healthHandler.Check)
+	r.Head("/health", healthHandler.Check)
 	r.Get("/v1/health", healthHandler.Check)
+	r.Head("/v1/health", healthHandler.Check)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Post("/v1/auth/signup", authHandler.Signup)
 	r.Post("/v1/auth/verify-email", authHandler.VerifyEmail)
@@ -51,6 +55,19 @@ func New(
 
 	// Webhook Stripe publico
 	r.Post("/v1/billing/webhook", billingHandler.Webhook)
+
+	// Webhooks de Teste Locais (Bypass de dependência Python)
+	r.Post("/webhook-mock-5001", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"success","received_at_mock":5001}`))
+	})
+	r.Post("/webhook-mock-5002", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"success","received_at_mock":5002}`))
+	})
+
 
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {

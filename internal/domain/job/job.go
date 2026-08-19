@@ -19,8 +19,12 @@ const (
 type HTTPMethod string
 
 const (
-	MethodGet  HTTPMethod = "GET"
-	MethodPost HTTPMethod = "POST"
+	MethodGet    HTTPMethod = "GET"
+	MethodPost   HTTPMethod = "POST"
+	MethodPut    HTTPMethod = "PUT"
+	MethodDelete HTTPMethod = "DELETE"
+	MethodPatch  HTTPMethod = "PATCH"
+	MethodHead   HTTPMethod = "HEAD"
 )
 
 // internal/domain/job/job.go

@@ -1170,6 +1170,7 @@ type ProfileResponse struct {
 	TotalJobsCreated   int                `json:"totalJobsCreated"`
 	Projects           []ProjectResponse  `json:"projects"`
 	Limits             PlanLimitsResponse `json:"limits"`
+	CurrentPeriodEnd   *string            `json:"currentPeriodEnd,omitempty"`
 }
 
 // GetProfile — GET /v1/users/profile
@@ -1235,6 +1236,13 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	subInfo, _ := h.entitlementEngine.GetSubscription(r.Context(), u.ID)
+	var expiryStr *string
+	if subInfo != nil && subInfo.CurrentPeriodEnd != nil {
+		formatted := subInfo.CurrentPeriodEnd.Format(time.RFC3339)
+		expiryStr = &formatted
+	}
+
 	resp := ProfileResponse{
 		ID:                 u.ID,
 		Email:              u.Email,
@@ -1256,6 +1264,7 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 			AlertsWebhooksEnabled: limits.AlertsWebhooksEnabled,
 			MultiProjectEnabled:   limits.MultiProjectEnabled,
 		},
+		CurrentPeriodEnd: expiryStr,
 	}
 
 	writeJSON(w, http.StatusOK, resp)

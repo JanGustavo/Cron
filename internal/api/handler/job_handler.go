@@ -87,6 +87,10 @@ func (h *JobHandler) Create(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, service.ErrJobLimitReached):
 			writeError(w, http.StatusForbidden, "Limite de jobs do plano atingido - faca upgrade")
+		case errors.Is(err, service.ErrWebhookAlertsDisabled):
+			writeError(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, service.ErrWorkflowsDisabled):
+			writeError(w, http.StatusForbidden, err.Error())
 		default:
 			writeError(w, http.StatusInternalServerError, "Erro ao criar job")
 		}
@@ -322,6 +326,10 @@ func (h *JobHandler) Update(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusNotFound, "Job nao encontrado")
 		case errors.Is(err, service.ErrInvalidSchedule):
 			writeError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, service.ErrWebhookAlertsDisabled):
+			writeError(w, http.StatusForbidden, err.Error())
+		case errors.Is(err, service.ErrWorkflowsDisabled):
+			writeError(w, http.StatusForbidden, err.Error())
 		default:
 			writeError(w, http.StatusInternalServerError, "Erro ao atualizar job")
 		}
