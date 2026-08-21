@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/JanGustavo/Cron/internal/api/middleware"
@@ -117,6 +118,13 @@ type OpenAIFunction struct {
 	Arguments string `json:"arguments"`
 }
 
+type OpenAISchema struct {
+	Type        string                  `json:"type"`
+	Properties  map[string]OpenAISchema `json:"properties,omitempty"`
+	Required    []string                `json:"required,omitempty"`
+	Description string                  `json:"description,omitempty"`
+}
+
 type OpenAITool struct {
 	Type     string             `json:"type"`
 	Function OpenAIFunctionDecl `json:"function"`
@@ -125,7 +133,7 @@ type OpenAITool struct {
 type OpenAIFunctionDecl struct {
 	Name        string       `json:"name"`
 	Description string       `json:"description"`
-	Parameters  GeminiSchema `json:"parameters"`
+	Parameters  OpenAISchema `json:"parameters"`
 }
 
 type OpenAIRequest struct {
@@ -682,6 +690,19 @@ func (h *AgentHandler) runGroqChat(ctx context.Context, projectID string, histor
 	return "", nil, fmt.Errorf("excedeu loop de tools no Groq fallback")
 }
 
+func toOpenAISchema(gs GeminiSchema) OpenAISchema {
+	props := make(map[string]OpenAISchema)
+	for k, v := range gs.Properties {
+		props[k] = toOpenAISchema(v)
+	}
+	return OpenAISchema{
+		Type:        strings.ToLower(gs.Type),
+		Properties:  props,
+		Required:    gs.Required,
+		Description: gs.Description,
+	}
+}
+
 func getOpenAITools() []OpenAITool {
 	var oTools []OpenAITool
 	for _, gt := range geminiTools {
@@ -691,7 +712,7 @@ func getOpenAITools() []OpenAITool {
 				Function: OpenAIFunctionDecl{
 					Name:        fd.Name,
 					Description: fd.Description,
-					Parameters:  fd.Parameters,
+					Parameters:  toOpenAISchema(fd.Parameters),
 				},
 			})
 		}
