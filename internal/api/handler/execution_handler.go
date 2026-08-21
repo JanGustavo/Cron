@@ -102,12 +102,7 @@ func (h *ExecutionHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	limit := 10
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 100 {
-			limit = parsed
-		}
-	}
+	limit := normalizeExecutionLimit(r.URL.Query().Get("limit"), 10, maxExecutionLimit)
 
 	offset := (page - 1) * limit
 
