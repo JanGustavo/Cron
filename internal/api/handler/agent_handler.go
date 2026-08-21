@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,7 +26,7 @@ import (
 
 type PendingOperation struct {
 	Tool      string
-	Args      map[string]any
+	ArgsHash  string
 	ProjectID string
 	ExpiresAt time.Time
 }
@@ -61,9 +64,17 @@ type AgentChatRequest struct {
 	History []GeminiMessage `json:"history"`
 }
 
+type AgentChatResponseError struct {
+	Code      string `json:"code"`
+	Retryable bool   `json:"retryable"`
+}
+
 type AgentChatResponse struct {
-	Reply   string          `json:"reply" example:"Executando ferramenta createJob... Job criado com ID 4a82 com sucesso! 🚀"`
-	History []GeminiMessage `json:"history"`
+	Reply             string                  `json:"reply" example:"Executando ferramenta createJob... Job criado com ID 4a82 com sucesso! 🚀"`
+	History           []GeminiMessage         `json:"history"`
+	Status            string                  `json:"status,omitempty" example:"CONFIRMATION_REQUIRED"`
+	ConfirmationToken string                  `json:"confirmationToken,omitempty" example:"CF-9B3D"`
+	Error             *AgentChatResponseError `json:"error,omitempty"`
 }
 
 // Gemini Types
@@ -422,7 +433,6 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ctx := r.Context()
-	ctx = context.WithValue(ctx, isConfirmedKey, isUserConfirmed(history))
 	useGroq := h.cfg.GeminiAPIKey == "" || h.cfg.DisableGemini
 
 	if useGroq {
@@ -666,12 +676,18 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 			}
 		}
 
+		normArgs, err := normalizeCreateJobArgs(args)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao normalizar argumentos: %w", err)
+		}
+		argsHash := computeHash(normArgs)
+
 		token, _ := args["confirmationToken"].(string)
 		if token == "" {
 			newToken := generateToken()
 			if err := h.setPendingOp(ctx, newToken, PendingOperation{
 				Tool:      "createJob",
-				Args:      args,
+				ArgsHash:  argsHash,
 				ProjectID: projectID,
 				ExpiresAt: time.Now().Add(5 * time.Minute),
 			}); err != nil {
@@ -684,7 +700,7 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 			}, nil
 		}
 
-		if err := h.consumePendingOp(ctx, token, "createJob", projectID, args); err != nil {
+		if err := h.consumePendingOp(ctx, token, "createJob", projectID, argsHash); err != nil {
 			return nil, err
 		}
 
@@ -709,12 +725,18 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 			return nil, fmt.Errorf("jobId is required")
 		}
 
+		normArgs, err := normalizeTriggerJobArgs(args)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao normalizar argumentos: %w", err)
+		}
+		argsHash := computeHash(normArgs)
+
 		token, _ := args["confirmationToken"].(string)
 		if token == "" {
 			newToken := generateToken()
 			if err := h.setPendingOp(ctx, newToken, PendingOperation{
 				Tool:      "triggerJob",
-				Args:      args,
+				ArgsHash:  argsHash,
 				ProjectID: projectID,
 				ExpiresAt: time.Now().Add(5 * time.Minute),
 			}); err != nil {
@@ -727,11 +749,11 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 			}, nil
 		}
 
-		if err := h.consumePendingOp(ctx, token, "triggerJob", projectID, args); err != nil {
+		if err := h.consumePendingOp(ctx, token, "triggerJob", projectID, argsHash); err != nil {
 			return nil, err
 		}
 
-		err := h.jobService.TriggerNow(ctx, jobID, projectID)
+		err = h.jobService.TriggerNow(ctx, jobID, projectID)
 		if err != nil {
 			return nil, err
 		}
@@ -1040,33 +1062,71 @@ func marshalArgs(args map[string]any) string {
 	return string(b)
 }
 
-type contextKey string
-const isConfirmedKey contextKey = "isConfirmed"
 
-func isUserConfirmed(history []GeminiMessage) bool {
-	for i := len(history) - 1; i >= 0; i-- {
-		if history[i].Role == "user" {
-			text := ""
-			for _, p := range history[i].Parts {
-				text += strings.ToLower(p.Text)
-			}
-			text = strings.TrimSpace(text)
-			
-			confirmations := []string{
-				"sim", "confirmo", "yes", "pode", "ok", "autorizo", "confirm", 
-				"proceed", "fechado", "correto", "pode criar", "pode disparar",
-				"está correto", "esta correto", "confirmado", "sim, confirmo",
-				"sim confirmo", "está certo", "esta certo",
-			}
-			for _, c := range confirmations {
-				if text == c || strings.HasPrefix(text, c+" ") || strings.HasSuffix(text, " "+c) {
-					return true
-				}
-			}
-			return false
+
+type NormalizedCreateJob struct {
+	Name            string            `json:"name"`
+	Schedule        string            `json:"schedule"`
+	URL             string            `json:"url"`
+	HTTPMethod      string            `json:"httpMethod"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	Payload         map[string]any    `json:"payload,omitempty"`
+	WebhookAlertURL string            `json:"webhookAlertUrl,omitempty"`
+}
+
+type NormalizedTriggerJob struct {
+	JobID string `json:"jobId"`
+}
+
+func normalizeCreateJobArgs(args map[string]any) (NormalizedCreateJob, error) {
+	name, _ := args["name"].(string)
+	schedule, _ := args["schedule"].(string)
+	url, _ := args["url"].(string)
+	
+	httpMethod, _ := args["httpMethod"].(string)
+	if httpMethod == "" {
+		httpMethod = "POST"
+	}
+	httpMethod = strings.ToUpper(httpMethod)
+
+	headers := make(map[string]string)
+	if hStr, ok := args["headers"].(string); ok && hStr != "" {
+		if err := json.Unmarshal([]byte(hStr), &headers); err != nil {
+			return NormalizedCreateJob{}, fmt.Errorf("headers inválido: %w", err)
 		}
 	}
-	return false
+
+	var payload map[string]any
+	if pStr, ok := args["payload"].(string); ok && pStr != "" {
+		if err := json.Unmarshal([]byte(pStr), &payload); err != nil {
+			return NormalizedCreateJob{}, fmt.Errorf("payload inválido: %w", err)
+		}
+	}
+
+	webhookAlertUrl, _ := args["webhookAlertUrl"].(string)
+
+	return NormalizedCreateJob{
+		Name:            name,
+		Schedule:        schedule,
+		URL:             url,
+		HTTPMethod:      httpMethod,
+		Headers:         headers,
+		Payload:         payload,
+		WebhookAlertURL: webhookAlertUrl,
+	}, nil
+}
+
+func normalizeTriggerJobArgs(args map[string]any) (NormalizedTriggerJob, error) {
+	jobID, _ := args["jobId"].(string)
+	return NormalizedTriggerJob{
+		JobID: jobID,
+	}, nil
+}
+
+func computeHash(val any) string {
+	b, _ := json.Marshal(val)
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
 }
 
 func (h *AgentHandler) setPendingOp(ctx context.Context, token string, op PendingOperation) error {
@@ -1084,7 +1144,32 @@ func (h *AgentHandler) setPendingOp(ctx context.Context, token string, op Pendin
 	return h.redis.Set(ctx, key, data, 5*time.Minute).Err()
 }
 
-func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expectedTool string, projectID string, currentArgs map[string]any) error {
+func (h *AgentHandler) incrementProjectFailures(ctx context.Context, projectID string) {
+	if h.redis == nil {
+		return
+	}
+	key := "cronflow:agent:project:" + projectID + ":failures"
+	h.redis.Incr(ctx, key)
+	h.redis.Expire(ctx, key, 1*time.Minute)
+}
+
+func (h *AgentHandler) checkProjectFailures(ctx context.Context, projectID string) error {
+	if h.redis == nil {
+		return nil
+	}
+	key := "cronflow:agent:project:" + projectID + ":failures"
+	val, err := h.redis.Get(ctx, key).Int()
+	if err == nil && val >= 5 {
+		return fmt.Errorf("limite de tentativas de confirmação excedido para o projeto. Aguarde 1 minuto")
+	}
+	return nil
+}
+
+func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expectedTool string, projectID string, currentArgsHash string) error {
+	if err := h.checkProjectFailures(ctx, projectID); err != nil {
+		return err
+	}
+
 	var op PendingOperation
 	var found bool
 
@@ -1096,6 +1181,7 @@ func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expec
 		}
 		h.pendingMu.Unlock()
 		if !found {
+			h.incrementProjectFailures(ctx, projectID)
 			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
 		}
 	} else {
@@ -1109,11 +1195,13 @@ func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expec
 		`
 		res, err := h.redis.Eval(ctx, luaConsume, []string{key}).Result()
 		if err != nil {
+			h.incrementProjectFailures(ctx, projectID)
 			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
 		}
 
 		valStr, ok := res.(string)
 		if !ok || valStr == "" {
+			h.incrementProjectFailures(ctx, projectID)
 			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
 		}
 
@@ -1123,10 +1211,12 @@ func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expec
 	}
 
 	if op.Tool != expectedTool {
+		h.incrementProjectFailures(ctx, projectID)
 		return fmt.Errorf("código de confirmação pertence a uma operação diferente")
 	}
 
 	if op.ProjectID != projectID {
+		h.incrementProjectFailures(ctx, projectID)
 		return fmt.Errorf("código de confirmação pertence a um projeto diferente")
 	}
 
@@ -1134,46 +1224,12 @@ func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expec
 		return fmt.Errorf("código de confirmação expirou")
 	}
 
-	if !compareArgs(op.Args, currentArgs) {
+	if subtle.ConstantTimeCompare([]byte(op.ArgsHash), []byte(currentArgsHash)) != 1 {
+		h.incrementProjectFailures(ctx, projectID)
 		return fmt.Errorf("os parâmetros da requisição foram alterados desde a confirmação (tampering detectado). Por favor, repita o processo")
 	}
 
 	return nil
-}
-
-func compareArgs(args1, args2 map[string]any) bool {
-	strFields := []string{"name", "schedule", "url", "httpMethod", "webhookAlertUrl", "jobId"}
-	for _, f := range strFields {
-		s1, _ := args1[f].(string)
-		s2, _ := args2[f].(string)
-		if s1 != s2 {
-			return false
-		}
-	}
-
-	h1Str, _ := args1["headers"].(string)
-	h2Str, _ := args2["headers"].(string)
-	if h1Str != h2Str {
-		var m1, m2 map[string]string
-		_ = json.Unmarshal([]byte(h1Str), &m1)
-		_ = json.Unmarshal([]byte(h2Str), &m2)
-		if fmt.Sprintf("%v", m1) != fmt.Sprintf("%v", m2) {
-			return false
-		}
-	}
-
-	p1Str, _ := args1["payload"].(string)
-	p2Str, _ := args2["payload"].(string)
-	if p1Str != p2Str {
-		var m1, m2 map[string]any
-		_ = json.Unmarshal([]byte(p1Str), &m1)
-		_ = json.Unmarshal([]byte(p2Str), &m2)
-		if fmt.Sprintf("%v", m1) != fmt.Sprintf("%v", m2) {
-			return false
-		}
-	}
-
-	return true
 }
 
 func generateToken() string {
