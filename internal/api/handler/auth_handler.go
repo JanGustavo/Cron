@@ -287,9 +287,11 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	verificationLink := fmt.Sprintf("%s/verify-email?token=%s", h.cfg.FrontendURL, verifyToken)
-	if err := h.mailService.SendVerificationEmail(u.Email, verificationLink); err != nil {
-		log.Printf("AuthHandler.Signup: falha ao enviar e-mail: %v", err)
-	}
+	go func(email, link string) {
+		if err := h.mailService.SendVerificationEmail(email, link); err != nil {
+			log.Printf("AuthHandler.Signup (background): falha ao enviar e-mail: %v", err)
+		}
+	}(u.Email, verificationLink)
 
 	writeJSON(w, http.StatusCreated, map[string]interface{}{
 		"status":                "success",
@@ -615,9 +617,11 @@ func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request)
 	}
 
 	verificationLink := fmt.Sprintf("%s/verify-email?token=%s", h.cfg.FrontendURL, verifyToken)
-	if err := h.mailService.SendVerificationEmail(u.Email, verificationLink); err != nil {
-		log.Printf("AuthHandler.ResendVerification: falha ao enviar e-mail: %v", err)
-	}
+	go func(email, link string) {
+		if err := h.mailService.SendVerificationEmail(email, link); err != nil {
+			log.Printf("AuthHandler.ResendVerification (background): falha ao enviar e-mail: %v", err)
+		}
+	}(u.Email, verificationLink)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":                "success",
@@ -773,9 +777,11 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resetLink := fmt.Sprintf("%s/reset-password?token=%s", h.cfg.FrontendURL, token)
-	if err := h.mailService.SendPasswordResetEmail(u.Email, resetLink); err != nil {
-		log.Printf("AuthHandler.ForgotPassword: falha ao enviar e-mail: %v", err)
-	}
+	go func(email, link string) {
+		if err := h.mailService.SendPasswordResetEmail(email, link); err != nil {
+			log.Printf("AuthHandler.ForgotPassword (background): falha ao enviar e-mail: %v", err)
+		}
+	}(u.Email, resetLink)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "success",
