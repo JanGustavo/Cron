@@ -247,3 +247,13 @@ func (r *ExecutionRepository) GetFailedExecutionsForUserLast24Hours(ctx context.
 	}
 	return digests, nil
 }
+
+// CleanupExpiredUnverifiedUsers calls the stored procedure to delete users who did not verify their email after 24 hours.
+func (r *ExecutionRepository) CleanupExpiredUnverifiedUsers(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `CALL pr_cleanup_expired_unverified_users()`)
+	if err != nil {
+		return fmt.Errorf("ExecutionRepository.CleanupExpiredUnverifiedUsers: %w", err)
+	}
+	return nil
+}
+

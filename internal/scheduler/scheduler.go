@@ -144,11 +144,20 @@ func (s *Scheduler) tick(ctx context.Context) {
 	s.cleanupTick++
 	if s.cleanupTick >= 2880 {
 		s.cleanupTick = 0
+		
+		// 1. Limpeza de logs de execução expirados
 		deleted, err := s.executionRepo.DeleteExpiredExecutions(ctx)
 		if err != nil {
 			log.Printf("Scheduler: erro na limpeza de logs: %v", err)
 		} else if deleted > 0 {
 			log.Printf("Scheduler: limpeza — %d execuções antigas expiradas removidas", deleted)
+		}
+
+		// 2. Limpeza de contas não ativas/verificadas criadas há mais de 24h
+		if err := s.executionRepo.CleanupExpiredUnverifiedUsers(ctx); err != nil {
+			log.Printf("Scheduler: erro na limpeza de contas expiradas não verificadas: %v", err)
+		} else {
+			log.Printf("Scheduler: limpeza de contas expiradas não verificadas executada com sucesso")
 		}
 	}
 }
