@@ -18,6 +18,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/domain/job"
 	"github.com/JanGustavo/Cron/internal/service"
 	"github.com/JanGustavo/Cron/pkg/httputil"
+	"github.com/redis/go-redis/v9"
 )
 
 type PendingOperation struct {
@@ -32,13 +33,26 @@ type AgentHandler struct {
 	cfg        *config.Config
 	pendingOps map[string]PendingOperation
 	pendingMu  sync.RWMutex
+	redis      *redis.Client
 }
 
 func NewAgentHandler(jobService *service.JobService, cfg *config.Config) *AgentHandler {
+	var rClient *redis.Client
+	if cfg.RedisURL != "" {
+		opt, err := redis.ParseURL(cfg.RedisURL)
+		if err != nil {
+			rClient = redis.NewClient(&redis.Options{
+				Addr: cfg.RedisURL,
+			})
+		} else {
+			rClient = redis.NewClient(opt)
+		}
+	}
 	return &AgentHandler{
 		jobService: jobService,
 		cfg:        cfg,
 		pendingOps: make(map[string]PendingOperation),
+		redis:      rClient,
 	}
 }
 
@@ -210,7 +224,7 @@ var geminiTools = []GeminiTool{
 						},
 						"payload": {
 							Type:        "STRING",
-							Description: "String JSON válida ou string simples que será enviada como corpo (payload) da requisição para métodos POST/PUT.",
+							Description: "Objeto JSON válido (ex: '{\"key\": \"value\"}') que será enviado como corpo da requisição para métodos POST/PUT. Deve ser obrigatoriamente um objeto JSON válido, strings simples não estruturadas não são aceitas.",
 						},
 						"webhookAlertUrl": {
 							Type:        "STRING",
@@ -221,7 +235,7 @@ var geminiTools = []GeminiTool{
 							Description: "O código de confirmação no formato 'CF-XXXXXX' fornecido pelo usuário. Deixe em branco no primeiro envio.",
 						},
 					},
-					Required: []string{"name", "schedule", "url"},
+					Required: []string{"name", "schedule", "url", "httpMethod"},
 				},
 			},
 			{
@@ -587,7 +601,14 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	writeError(w, http.StatusInternalServerError, "Excedeu o limite de chamadas de funcao do agente")
+	writeJSON(w, http.StatusOK, map[string]any{
+		"reply":   "Excedeu o limite de chamadas de função do agente para esta solicitação. Nenhuma ação foi finalizada.",
+		"history": history,
+		"error": map[string]any{
+			"code":      "TOOL_CALL_LIMIT_EXCEEDED",
+			"retryable": false,
+		},
+	})
 }
 
 func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name string, args map[string]any) (any, error) {
@@ -600,41 +621,9 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		return jobs, nil
 
 	case "createJob":
-		token, _ := args["confirmationToken"].(string)
-		if token == "" {
-			newToken := generateToken()
-			h.setPendingOp(newToken, PendingOperation{
-				Tool:      "createJob",
-				Args:      args,
-				ProjectID: projectID,
-				ExpiresAt: time.Now().Add(5 * time.Minute),
-			})
-			return map[string]any{
-				"status":            "CONFIRMATION_REQUIRED",
-				"confirmationToken": newToken,
-				"message":           "Ação pendente. Por favor, apresente um resumo detalhado dos parâmetros (Nome, URL, Schedule, Método) e solicite que o usuário digite exatamente o código para confirmar: " + newToken,
-			}, nil
-		}
-
-		op, ok := h.getPendingOp(token)
-		if !ok || op.Tool != "createJob" || op.ProjectID != projectID || time.Now().After(op.ExpiresAt) {
-			return nil, fmt.Errorf("código de confirmação inválido ou expirado. Por favor, solicite a criação do job novamente para gerar um novo código")
-		}
-
 		nameVal, _ := args["name"].(string)
 		scheduleVal, _ := args["schedule"].(string)
 		urlVal, _ := args["url"].(string)
-		
-		cachedName, _ := op.Args["name"].(string)
-		cachedSchedule, _ := op.Args["schedule"].(string)
-		cachedURL, _ := op.Args["url"].(string)
-
-		if nameVal != cachedName || scheduleVal != cachedSchedule || urlVal != cachedURL {
-			return nil, fmt.Errorf("os parâmetros da requisição foram alterados desde a confirmação. Por favor, repita o processo de criação")
-		}
-
-		h.deletePendingOp(token)
-
 		if nameVal == "" || scheduleVal == "" || urlVal == "" {
 			return nil, fmt.Errorf("name, schedule and url are required")
 		}
@@ -642,6 +631,10 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		httpMethodVal, _ := args["httpMethod"].(string)
 		if httpMethodVal == "" {
 			httpMethodVal = "POST"
+		}
+		methodUpper := strings.ToUpper(httpMethodVal)
+		if methodUpper != "GET" && methodUpper != "POST" && methodUpper != "PUT" && methodUpper != "DELETE" && methodUpper != "PATCH" {
+			return nil, fmt.Errorf("método HTTP inválido: %s. Use GET, POST, PUT, DELETE ou PATCH", httpMethodVal)
 		}
 
 		headersVal := make(map[string]string)
@@ -673,12 +666,34 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 			}
 		}
 
+		token, _ := args["confirmationToken"].(string)
+		if token == "" {
+			newToken := generateToken()
+			if err := h.setPendingOp(ctx, newToken, PendingOperation{
+				Tool:      "createJob",
+				Args:      args,
+				ProjectID: projectID,
+				ExpiresAt: time.Now().Add(5 * time.Minute),
+			}); err != nil {
+				return nil, err
+			}
+			return map[string]any{
+				"status":            "CONFIRMATION_REQUIRED",
+				"confirmationToken": newToken,
+				"message":           "Ação pendente. Por favor, apresente um resumo detalhado dos parâmetros (Nome, URL, Schedule, Método) e solicite que o usuário digite exatamente o código para confirmar: " + newToken,
+			}, nil
+		}
+
+		if err := h.consumePendingOp(ctx, token, "createJob", projectID, args); err != nil {
+			return nil, err
+		}
+
 		created, err := h.jobService.Create(ctx, service.CreateJobInput{
 			ProjectID:       projectID,
 			Name:            nameVal,
 			Schedule:        scheduleVal,
 			URL:             urlVal,
-			HTTPMethod:      job.HTTPMethod(httpMethodVal),
+			HTTPMethod:      job.HTTPMethod(methodUpper),
 			Headers:         headersVal,
 			Payload:         payloadVal,
 			WebhookAlertURL: webhookAlertUrl,
@@ -689,15 +704,22 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		return created, nil
 
 	case "triggerJob":
+		jobID, _ := args["jobId"].(string)
+		if jobID == "" {
+			return nil, fmt.Errorf("jobId is required")
+		}
+
 		token, _ := args["confirmationToken"].(string)
 		if token == "" {
 			newToken := generateToken()
-			h.setPendingOp(newToken, PendingOperation{
+			if err := h.setPendingOp(ctx, newToken, PendingOperation{
 				Tool:      "triggerJob",
 				Args:      args,
 				ProjectID: projectID,
 				ExpiresAt: time.Now().Add(5 * time.Minute),
-			})
+			}); err != nil {
+				return nil, err
+			}
 			return map[string]any{
 				"status":            "CONFIRMATION_REQUIRED",
 				"confirmationToken": newToken,
@@ -705,22 +727,10 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 			}, nil
 		}
 
-		op, ok := h.getPendingOp(token)
-		if !ok || op.Tool != "triggerJob" || op.ProjectID != projectID || time.Now().After(op.ExpiresAt) {
-			return nil, fmt.Errorf("código de confirmação inválido ou expirado. Solicite o disparo novamente")
+		if err := h.consumePendingOp(ctx, token, "triggerJob", projectID, args); err != nil {
+			return nil, err
 		}
 
-		jobID, _ := args["jobId"].(string)
-		cachedJobID, _ := op.Args["jobId"].(string)
-		if jobID != cachedJobID {
-			return nil, fmt.Errorf("ID da tarefa alterado após a geração do código. Confirme o disparo novamente")
-		}
-
-		h.deletePendingOp(token)
-
-		if jobID == "" {
-			return nil, fmt.Errorf("jobId is required")
-		}
 		err := h.jobService.TriggerNow(ctx, jobID, projectID)
 		if err != nil {
 			return nil, err
@@ -1059,23 +1069,111 @@ func isUserConfirmed(history []GeminiMessage) bool {
 	return false
 }
 
-func (h *AgentHandler) getPendingOp(token string) (PendingOperation, bool) {
-	h.pendingMu.RLock()
-	defer h.pendingMu.RUnlock()
-	op, ok := h.pendingOps[token]
-	return op, ok
+func (h *AgentHandler) setPendingOp(ctx context.Context, token string, op PendingOperation) error {
+	if h.redis == nil {
+		h.pendingMu.Lock()
+		defer h.pendingMu.Unlock()
+		h.pendingOps[token] = op
+		return nil
+	}
+	key := "cronflow:agent:pending:" + token
+	data, err := json.Marshal(op)
+	if err != nil {
+		return err
+	}
+	return h.redis.Set(ctx, key, data, 5*time.Minute).Err()
 }
 
-func (h *AgentHandler) setPendingOp(token string, op PendingOperation) {
-	h.pendingMu.Lock()
-	defer h.pendingMu.Unlock()
-	h.pendingOps[token] = op
+func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expectedTool string, projectID string, currentArgs map[string]any) error {
+	var op PendingOperation
+	var found bool
+
+	if h.redis == nil {
+		h.pendingMu.Lock()
+		op, found = h.pendingOps[token]
+		if found {
+			delete(h.pendingOps, token)
+		}
+		h.pendingMu.Unlock()
+		if !found {
+			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
+		}
+	} else {
+		key := "cronflow:agent:pending:" + token
+		const luaConsume = `
+			local val = redis.call("GET", KEYS[1])
+			if val then
+				redis.call("DEL", KEYS[1])
+			end
+			return val
+		`
+		res, err := h.redis.Eval(ctx, luaConsume, []string{key}).Result()
+		if err != nil {
+			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
+		}
+
+		valStr, ok := res.(string)
+		if !ok || valStr == "" {
+			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
+		}
+
+		if err := json.Unmarshal([]byte(valStr), &op); err != nil {
+			return fmt.Errorf("erro ao decodificar dados da confirmação: %w", err)
+		}
+	}
+
+	if op.Tool != expectedTool {
+		return fmt.Errorf("código de confirmação pertence a uma operação diferente")
+	}
+
+	if op.ProjectID != projectID {
+		return fmt.Errorf("código de confirmação pertence a um projeto diferente")
+	}
+
+	if h.redis == nil && time.Now().After(op.ExpiresAt) {
+		return fmt.Errorf("código de confirmação expirou")
+	}
+
+	if !compareArgs(op.Args, currentArgs) {
+		return fmt.Errorf("os parâmetros da requisição foram alterados desde a confirmação (tampering detectado). Por favor, repita o processo")
+	}
+
+	return nil
 }
 
-func (h *AgentHandler) deletePendingOp(token string) {
-	h.pendingMu.Lock()
-	defer h.pendingMu.Unlock()
-	delete(h.pendingOps, token)
+func compareArgs(args1, args2 map[string]any) bool {
+	strFields := []string{"name", "schedule", "url", "httpMethod", "webhookAlertUrl", "jobId"}
+	for _, f := range strFields {
+		s1, _ := args1[f].(string)
+		s2, _ := args2[f].(string)
+		if s1 != s2 {
+			return false
+		}
+	}
+
+	h1Str, _ := args1["headers"].(string)
+	h2Str, _ := args2["headers"].(string)
+	if h1Str != h2Str {
+		var m1, m2 map[string]string
+		_ = json.Unmarshal([]byte(h1Str), &m1)
+		_ = json.Unmarshal([]byte(h2Str), &m2)
+		if fmt.Sprintf("%v", m1) != fmt.Sprintf("%v", m2) {
+			return false
+		}
+	}
+
+	p1Str, _ := args1["payload"].(string)
+	p2Str, _ := args2["payload"].(string)
+	if p1Str != p2Str {
+		var m1, m2 map[string]any
+		_ = json.Unmarshal([]byte(p1Str), &m1)
+		_ = json.Unmarshal([]byte(p2Str), &m2)
+		if fmt.Sprintf("%v", m1) != fmt.Sprintf("%v", m2) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func generateToken() string {

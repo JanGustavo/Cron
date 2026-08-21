@@ -52,7 +52,7 @@ var client = &http.Client{
 			return fmt.Errorf("httputil: limite de redirecionamentos (3) excedido")
 		}
 
-		if os.Getenv("ALLOW_LOCAL_WEBHOOKS") == "true" {
+		if allowLocalWebhooks() {
 			return nil
 		}
 
@@ -86,7 +86,7 @@ var client = &http.Client{
 		IdleConnTimeout:     90 * time.Second,
 		TLSHandshakeTimeout: 10 * time.Second,
 		DialContext: func(ctx context.Context, network, address string) (net.Conn, error) {
-			if os.Getenv("ALLOW_LOCAL_WEBHOOKS") == "true" {
+			if allowLocalWebhooks() {
 				return (&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}).DialContext(ctx, network, address)
 			}
 
@@ -191,13 +191,17 @@ func SafeClient() *http.Client {
 
 // ValidateURL verifica se uma URL é segura contra SSRF (resolve apenas para IPs públicos)
 func ValidateURL(ctx context.Context, rawURL string) error {
-	if os.Getenv("ALLOW_LOCAL_WEBHOOKS") == "true" {
+	if allowLocalWebhooks() {
 		return nil
 	}
 
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("URL inválida: %w", err)
+	}
+
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("esquema inválido: apenas http e https são permitidos")
 	}
 
 	host := u.Hostname()
@@ -209,7 +213,7 @@ func ValidateURL(ctx context.Context, rawURL string) error {
 	if ip := net.ParseIP(host); ip != nil {
 		ips = []net.IP{ip}
 	} else {
-		ips, err = net.LookupIP(host)
+		ips, err = net.DefaultResolver.LookupIP(ctx, "ip", host)
 		if err != nil {
 			return fmt.Errorf("falha ao resolver host: %w", err)
 		}
@@ -224,4 +228,6 @@ func ValidateURL(ctx context.Context, rawURL string) error {
 	return nil
 }
 
-
+func allowLocalWebhooks() bool {
+	return os.Getenv("APP_ENV") != "production" && os.Getenv("ALLOW_LOCAL_WEBHOOKS") == "true"
+}
