@@ -15,6 +15,7 @@ import (
 
 	"github.com/JanGustavo/Cron/internal/auth"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
+	"github.com/JanGustavo/Cron/pkg/httputil"
 )
 
 type AlertService struct {
@@ -142,7 +143,7 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 
 		req.Header.Set("User-Agent", "CronFlow-Alerter/1.0")
 
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := httputil.SafeClient().Do(req)
 		if err != nil {
 			log.Printf("AlertService.Notify: falha ao entregar alerta para %s: %v", webhookURL, err)
 			return

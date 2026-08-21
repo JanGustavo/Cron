@@ -190,7 +190,7 @@ var geminiTools = []GeminiTool{
 						},
 						"httpMethod": {
 							Type:        "STRING",
-							Description: "Método HTTP a ser usado no disparo (GET, POST, PUT, DELETE, PATCH). Padrão é POST.",
+							Description: "Método HTTP a ser usado no disparo (GET, POST, PUT, DELETE, PATCH). O valor deve ser explicitamente fornecido.",
 						},
 						"headers": {
 							Type:        "STRING",
@@ -202,7 +202,7 @@ var geminiTools = []GeminiTool{
 						},
 						"webhookAlertUrl": {
 							Type:        "STRING",
-							Description: "URL opcional para receber alertas caso este job falhe por 3 vezes consecutivas.",
+							Description: "URL opcional para receber alertas, conforme a política de alertas configurada.",
 						},
 					},
 					Required: []string{"name", "schedule", "url"},
@@ -388,6 +388,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ctx := r.Context()
+	ctx = context.WithValue(ctx, isConfirmedKey, isUserConfirmed(history))
 	useGroq := h.cfg.GeminiAPIKey == "" || h.cfg.DisableGemini
 
 	if useGroq {
@@ -398,6 +399,10 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
 				"history": history,
+				"error": map[string]any{
+					"code":      "AI_PROVIDER_UNAVAILABLE",
+					"retryable": true,
+				},
 			})
 			return
 		}
@@ -461,6 +466,10 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 					writeJSON(w, http.StatusOK, map[string]any{
 						"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
 						"history": history,
+						"error": map[string]any{
+							"code":      "AI_PROVIDER_UNAVAILABLE",
+							"retryable": true,
+						},
 					})
 					return
 				}
@@ -474,6 +483,10 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
 				"history": history,
+				"error": map[string]any{
+					"code":      "AI_PROVIDER_UNAVAILABLE",
+					"retryable": true,
+				},
 			})
 			return
 		}
@@ -485,6 +498,10 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
 				"history": history,
+				"error": map[string]any{
+					"code":      "AI_PROVIDER_UNAVAILABLE",
+					"retryable": true,
+				},
 			})
 			return
 		}
@@ -493,6 +510,10 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{
 				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
 				"history": history,
+				"error": map[string]any{
+					"code":      "AI_PROVIDER_UNAVAILABLE",
+					"retryable": true,
+				},
 			})
 			return
 		}
@@ -559,6 +580,10 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		return jobs, nil
 
 	case "createJob":
+		confirmed, _ := ctx.Value(isConfirmedKey).(bool)
+		if !confirmed {
+			return nil, fmt.Errorf("CONFIRMATION_REQUIRED: Por favor, apresente um resumo dos parâmetros ao usuário (Nome, URL, Schedule) e peça confirmação explícita no chat antes de chamar esta ferramenta.")
+		}
 		nameVal, _ := args["name"].(string)
 		scheduleVal, _ := args["schedule"].(string)
 		urlVal, _ := args["url"].(string)
@@ -581,7 +606,7 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		var payloadVal map[string]any
 		if payloadStr, ok := args["payload"].(string); ok && payloadStr != "" {
 			if err := json.Unmarshal([]byte(payloadStr), &payloadVal); err != nil {
-				payloadVal = map[string]any{"data": payloadStr}
+				return nil, fmt.Errorf("payload deve ser um objeto JSON válido: %w", err)
 			}
 		}
 
@@ -606,6 +631,10 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		return created, nil
 
 	case "triggerJob":
+		confirmed, _ := ctx.Value(isConfirmedKey).(bool)
+		if !confirmed {
+			return nil, fmt.Errorf("CONFIRMATION_REQUIRED: Por favor, apresente um resumo dos parâmetros ao usuário (ID do Job) e peça confirmação explícita no chat antes de chamar esta ferramenta.")
+		}
 		jobID, _ := args["jobId"].(string)
 		if jobID == "" {
 			return nil, fmt.Errorf("jobId is required")
@@ -918,3 +947,33 @@ func marshalArgs(args map[string]any) string {
 	b, _ := json.Marshal(args)
 	return string(b)
 }
+
+type contextKey string
+const isConfirmedKey contextKey = "isConfirmed"
+
+func isUserConfirmed(history []GeminiMessage) bool {
+	for i := len(history) - 1; i >= 0; i-- {
+		if history[i].Role == "user" {
+			text := ""
+			for _, p := range history[i].Parts {
+				text += strings.ToLower(p.Text)
+			}
+			text = strings.TrimSpace(text)
+			
+			confirmations := []string{
+				"sim", "confirmo", "yes", "pode", "ok", "autorizo", "confirm", 
+				"proceed", "fechado", "correto", "pode criar", "pode disparar",
+				"está correto", "esta correto", "confirmado", "sim, confirmo",
+				"sim confirmo", "está certo", "esta certo",
+			}
+			for _, c := range confirmations {
+				if text == c || strings.HasPrefix(text, c+" ") || strings.HasSuffix(text, " "+c) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
