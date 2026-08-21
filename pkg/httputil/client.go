@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 )
@@ -187,4 +188,40 @@ func Execute(ctx context.Context, method, url string, headers map[string]string,
 func SafeClient() *http.Client {
 	return client
 }
+
+// ValidateURL verifica se uma URL é segura contra SSRF (resolve apenas para IPs públicos)
+func ValidateURL(ctx context.Context, rawURL string) error {
+	if os.Getenv("ALLOW_LOCAL_WEBHOOKS") == "true" {
+		return nil
+	}
+
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("URL inválida: %w", err)
+	}
+
+	host := u.Hostname()
+	if host == "" {
+		host = u.Host
+	}
+
+	var ips []net.IP
+	if ip := net.ParseIP(host); ip != nil {
+		ips = []net.IP{ip}
+	} else {
+		ips, err = net.LookupIP(host)
+		if err != nil {
+			return fmt.Errorf("falha ao resolver host: %w", err)
+		}
+	}
+
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("SSRF: conexão bloqueada para endereço privado/local: %s", ip)
+		}
+	}
+
+	return nil
+}
+
 

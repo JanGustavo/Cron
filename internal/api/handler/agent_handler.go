@@ -3,12 +3,14 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/JanGustavo/Cron/internal/api/middleware"
@@ -18,15 +20,25 @@ import (
 	"github.com/JanGustavo/Cron/pkg/httputil"
 )
 
+type PendingOperation struct {
+	Tool      string
+	Args      map[string]any
+	ProjectID string
+	ExpiresAt time.Time
+}
+
 type AgentHandler struct {
 	jobService *service.JobService
 	cfg        *config.Config
+	pendingOps map[string]PendingOperation
+	pendingMu  sync.RWMutex
 }
 
 func NewAgentHandler(jobService *service.JobService, cfg *config.Config) *AgentHandler {
 	return &AgentHandler{
 		jobService: jobService,
 		cfg:        cfg,
+		pendingOps: make(map[string]PendingOperation),
 	}
 }
 
@@ -204,6 +216,10 @@ var geminiTools = []GeminiTool{
 							Type:        "STRING",
 							Description: "URL opcional para receber alertas, conforme a política de alertas configurada.",
 						},
+						"confirmationToken": {
+							Type:        "STRING",
+							Description: "O código de confirmação no formato 'CF-XXXXXX' fornecido pelo usuário. Deixe em branco no primeiro envio.",
+						},
 					},
 					Required: []string{"name", "schedule", "url"},
 				},
@@ -217,6 +233,10 @@ var geminiTools = []GeminiTool{
 						"jobId": {
 							Type:        "STRING",
 							Description: "O ID da tarefa (formato UUID) obtido na listagem de jobs.",
+						},
+						"confirmationToken": {
+							Type:        "STRING",
+							Description: "O código de confirmação no formato 'CF-XXXXXX' fornecido pelo usuário. Deixe em branco no primeiro envio.",
 						},
 					},
 					Required: []string{"jobId"},
@@ -580,13 +600,41 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		return jobs, nil
 
 	case "createJob":
-		confirmed, _ := ctx.Value(isConfirmedKey).(bool)
-		if !confirmed {
-			return nil, fmt.Errorf("CONFIRMATION_REQUIRED: Por favor, apresente um resumo dos parâmetros ao usuário (Nome, URL, Schedule) e peça confirmação explícita no chat antes de chamar esta ferramenta.")
+		token, _ := args["confirmationToken"].(string)
+		if token == "" {
+			newToken := generateToken()
+			h.setPendingOp(newToken, PendingOperation{
+				Tool:      "createJob",
+				Args:      args,
+				ProjectID: projectID,
+				ExpiresAt: time.Now().Add(5 * time.Minute),
+			})
+			return map[string]any{
+				"status":            "CONFIRMATION_REQUIRED",
+				"confirmationToken": newToken,
+				"message":           "Ação pendente. Por favor, apresente um resumo detalhado dos parâmetros (Nome, URL, Schedule, Método) e solicite que o usuário digite exatamente o código para confirmar: " + newToken,
+			}, nil
 		}
+
+		op, ok := h.getPendingOp(token)
+		if !ok || op.Tool != "createJob" || op.ProjectID != projectID || time.Now().After(op.ExpiresAt) {
+			return nil, fmt.Errorf("código de confirmação inválido ou expirado. Por favor, solicite a criação do job novamente para gerar um novo código")
+		}
+
 		nameVal, _ := args["name"].(string)
 		scheduleVal, _ := args["schedule"].(string)
 		urlVal, _ := args["url"].(string)
+		
+		cachedName, _ := op.Args["name"].(string)
+		cachedSchedule, _ := op.Args["schedule"].(string)
+		cachedURL, _ := op.Args["url"].(string)
+
+		if nameVal != cachedName || scheduleVal != cachedSchedule || urlVal != cachedURL {
+			return nil, fmt.Errorf("os parâmetros da requisição foram alterados desde a confirmação. Por favor, repita o processo de criação")
+		}
+
+		h.deletePendingOp(token)
+
 		if nameVal == "" || scheduleVal == "" || urlVal == "" {
 			return nil, fmt.Errorf("name, schedule and url are required")
 		}
@@ -615,6 +663,16 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 			webhookAlertUrl = &alertUrl
 		}
 
+		if err := httputil.ValidateURL(ctx, urlVal); err != nil {
+			return nil, fmt.Errorf("URL inválida: %w", err)
+		}
+
+		if webhookAlertUrl != nil && *webhookAlertUrl != "" {
+			if err := httputil.ValidateURL(ctx, *webhookAlertUrl); err != nil {
+				return nil, fmt.Errorf("webhookAlertUrl inválida: %w", err)
+			}
+		}
+
 		created, err := h.jobService.Create(ctx, service.CreateJobInput{
 			ProjectID:       projectID,
 			Name:            nameVal,
@@ -631,11 +689,35 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		return created, nil
 
 	case "triggerJob":
-		confirmed, _ := ctx.Value(isConfirmedKey).(bool)
-		if !confirmed {
-			return nil, fmt.Errorf("CONFIRMATION_REQUIRED: Por favor, apresente um resumo dos parâmetros ao usuário (ID do Job) e peça confirmação explícita no chat antes de chamar esta ferramenta.")
+		token, _ := args["confirmationToken"].(string)
+		if token == "" {
+			newToken := generateToken()
+			h.setPendingOp(newToken, PendingOperation{
+				Tool:      "triggerJob",
+				Args:      args,
+				ProjectID: projectID,
+				ExpiresAt: time.Now().Add(5 * time.Minute),
+			})
+			return map[string]any{
+				"status":            "CONFIRMATION_REQUIRED",
+				"confirmationToken": newToken,
+				"message":           "Ação pendente. Por favor, solicite que o usuário confirme o disparo da tarefa digitando exatamente o código: " + newToken,
+			}, nil
 		}
+
+		op, ok := h.getPendingOp(token)
+		if !ok || op.Tool != "triggerJob" || op.ProjectID != projectID || time.Now().After(op.ExpiresAt) {
+			return nil, fmt.Errorf("código de confirmação inválido ou expirado. Solicite o disparo novamente")
+		}
+
 		jobID, _ := args["jobId"].(string)
+		cachedJobID, _ := op.Args["jobId"].(string)
+		if jobID != cachedJobID {
+			return nil, fmt.Errorf("ID da tarefa alterado após a geração do código. Confirme o disparo novamente")
+		}
+
+		h.deletePendingOp(token)
+
 		if jobID == "" {
 			return nil, fmt.Errorf("jobId is required")
 		}
@@ -976,4 +1058,34 @@ func isUserConfirmed(history []GeminiMessage) bool {
 	}
 	return false
 }
+
+func (h *AgentHandler) getPendingOp(token string) (PendingOperation, bool) {
+	h.pendingMu.RLock()
+	defer h.pendingMu.RUnlock()
+	op, ok := h.pendingOps[token]
+	return op, ok
+}
+
+func (h *AgentHandler) setPendingOp(token string, op PendingOperation) {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	h.pendingOps[token] = op
+}
+
+func (h *AgentHandler) deletePendingOp(token string) {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	delete(h.pendingOps, token)
+}
+
+func generateToken() string {
+	const letters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	for i := range b {
+		b[i] = letters[int(b[i])%len(letters)]
+	}
+	return "CF-" + string(b)
+}
+
 
