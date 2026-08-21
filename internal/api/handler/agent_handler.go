@@ -391,7 +391,10 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 				reply, updatedHistory, err := h.runGroqChat(ctx, proj.ID, history)
 				if err != nil {
 					log.Printf("ERROR Groq Fallback Execution: %v", err)
-					writeError(w, http.StatusInternalServerError, "Erro ao processar requisicao via Groq fallback")
+					writeJSON(w, http.StatusOK, map[string]any{
+						"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
+						"history": history,
+					})
 					return
 				}
 				writeJSON(w, http.StatusOK, map[string]any{
@@ -401,7 +404,10 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			writeError(w, http.StatusInternalServerError, "Ia respondeu com erro ou limite atingido")
+			writeJSON(w, http.StatusOK, map[string]any{
+				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
+				"history": history,
+			})
 			return
 		}
 		defer resp.Body.Close()
@@ -409,12 +415,18 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		var geminiResp GeminiResponse
 		if err := json.NewDecoder(resp.Body).Decode(&geminiResp); err != nil {
 			log.Printf("ERROR Gemini Response Decode: %v", err)
-			writeError(w, http.StatusInternalServerError, "Erro ao decodificar resposta da IA")
+			writeJSON(w, http.StatusOK, map[string]any{
+				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
+				"history": history,
+			})
 			return
 		}
 
 		if len(geminiResp.Candidates) == 0 {
-			writeError(w, http.StatusInternalServerError, "Ia nao retornou nenhuma resposta")
+			writeJSON(w, http.StatusOK, map[string]any{
+				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
+				"history": history,
+			})
 			return
 		}
 
