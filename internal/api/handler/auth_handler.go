@@ -293,12 +293,15 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 		}
 	}(u.Email, verificationLink)
 
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
+	respData := map[string]interface{}{
 		"status":                "success",
 		"message":               "Conta criada com sucesso! Por favor, verifique seu e-mail para ativar sua conta.",
 		"requires_verification": true,
-		"link":                  verificationLink, // retornado em JSON no desenvolvimento para bypass do simulador
-	})
+	}
+	if h.cfg.AppEnv != "production" {
+		respData["link"] = verificationLink
+	}
+	writeJSON(w, http.StatusCreated, respData)
 }
 
 // Login — POST /v1/auth/login
@@ -623,12 +626,15 @@ func (h *AuthHandler) ResendVerification(w http.ResponseWriter, r *http.Request)
 		}
 	}(u.Email, verificationLink)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	respData := map[string]interface{}{
 		"status":                "success",
 		"message":               "Link de confirmação reenviado com sucesso!",
 		"requires_verification": true,
-		"link":                  verificationLink, // retornado em JSON no desenvolvimento para bypass do simulador
-	})
+	}
+	if h.cfg.AppEnv != "production" {
+		respData["link"] = verificationLink
+	}
+	writeJSON(w, http.StatusOK, respData)
 }
 
 // ListAPIKeys — GET /v1/keys
@@ -783,11 +789,14 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		}
 	}(u.Email, resetLink)
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
+	respData := map[string]interface{}{
 		"status":  "success",
 		"message": "Instruções de recuperação enviadas.",
-		"link":    resetLink,
-	})
+	}
+	if h.cfg.AppEnv != "production" {
+		respData["link"] = resetLink
+	}
+	writeJSON(w, http.StatusOK, respData)
 }
 
 // ResetPassword — POST /v1/auth/reset-password
