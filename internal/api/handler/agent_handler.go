@@ -11,7 +11,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +25,32 @@ import (
 	"github.com/JanGustavo/Cron/pkg/httputil"
 	"github.com/redis/go-redis/v9"
 )
+
+type contextKey string
+const (
+	userIDKey   contextKey = "userID"
+	clientIPKey contextKey = "clientIP"
+)
+
+func getClientIP(r *http.Request) string {
+	ip := r.Header.Get("X-Forwarded-For")
+	if ip == "" {
+		ip = r.Header.Get("X-Real-IP")
+	}
+	if ip == "" {
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err == nil {
+			ip = host
+		} else {
+			ip = r.RemoteAddr
+		}
+	}
+	if strings.Contains(ip, ",") {
+		parts := strings.Split(ip, ",")
+		return strings.TrimSpace(parts[0])
+	}
+	return ip
+}
 
 type PendingOperation struct {
 	Tool      string
@@ -70,7 +98,7 @@ type AgentChatResponseError struct {
 }
 
 type AgentChatResponse struct {
-	Reply             string                  `json:"reply" example:"Executando ferramenta createJob... Job criado com ID 4a82 com sucesso! 🚀"`
+	Reply             string                  `json:"reply" example:"Por favor, confirme a criação do job com os seguintes parâmetros: ... Código de confirmação: CF-9B3D"`
 	History           []GeminiMessage         `json:"history"`
 	Status            string                  `json:"status,omitempty" example:"CONFIRMATION_REQUIRED"`
 	ConfirmationToken string                  `json:"confirmationToken,omitempty" example:"CF-9B3D"`
@@ -433,6 +461,8 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ctx := r.Context()
+	ctx = context.WithValue(ctx, userIDKey, proj.UserID)
+	ctx = context.WithValue(ctx, clientIPKey, getClientIP(r))
 	useGroq := h.cfg.GeminiAPIKey == "" || h.cfg.DisableGemini
 
 	if useGroq {
@@ -1131,6 +1161,9 @@ func computeHash(val any) string {
 
 func (h *AgentHandler) setPendingOp(ctx context.Context, token string, op PendingOperation) error {
 	if h.redis == nil {
+		if h.cfg.AppEnv == "production" || os.Getenv("APP_ENV") == "production" {
+			return fmt.Errorf("AI_CONFIRMATION_STORE_UNAVAILABLE: Armazenamento de confirmações indisponível")
+		}
 		h.pendingMu.Lock()
 		defer h.pendingMu.Unlock()
 		h.pendingOps[token] = op
@@ -1144,29 +1177,41 @@ func (h *AgentHandler) setPendingOp(ctx context.Context, token string, op Pendin
 	return h.redis.Set(ctx, key, data, 5*time.Minute).Err()
 }
 
-func (h *AgentHandler) incrementProjectFailures(ctx context.Context, projectID string) {
+func (h *AgentHandler) incrementFailures(ctx context.Context, projectID string) {
 	if h.redis == nil {
 		return
 	}
-	key := "cronflow:agent:project:" + projectID + ":failures"
-	h.redis.Incr(ctx, key)
-	h.redis.Expire(ctx, key, 1*time.Minute)
+	userID, _ := ctx.Value(userIDKey).(string)
+	clientIP, _ := ctx.Value(clientIPKey).(string)
+	key := fmt.Sprintf("cronflow:agent:limit:%s:%s:%s", projectID, userID, clientIP)
+
+	const luaRateLimit = `
+		local val = redis.call("INCR", KEYS[1])
+		if val == 1 then
+			redis.call("EXPIRE", KEYS[1], 60)
+		end
+		return val
+	`
+	_, _ = h.redis.Eval(ctx, luaRateLimit, []string{key}).Result()
 }
 
-func (h *AgentHandler) checkProjectFailures(ctx context.Context, projectID string) error {
+func (h *AgentHandler) checkFailures(ctx context.Context, projectID string) error {
 	if h.redis == nil {
 		return nil
 	}
-	key := "cronflow:agent:project:" + projectID + ":failures"
+	userID, _ := ctx.Value(userIDKey).(string)
+	clientIP, _ := ctx.Value(clientIPKey).(string)
+	key := fmt.Sprintf("cronflow:agent:limit:%s:%s:%s", projectID, userID, clientIP)
+
 	val, err := h.redis.Get(ctx, key).Int()
 	if err == nil && val >= 5 {
-		return fmt.Errorf("limite de tentativas de confirmação excedido para o projeto. Aguarde 1 minuto")
+		return fmt.Errorf("limite de tentativas de confirmação excedido para o seu usuário. Aguarde 1 minuto")
 	}
 	return nil
 }
 
 func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expectedTool string, projectID string, currentArgsHash string) error {
-	if err := h.checkProjectFailures(ctx, projectID); err != nil {
+	if err := h.checkFailures(ctx, projectID); err != nil {
 		return err
 	}
 
@@ -1174,59 +1219,68 @@ func (h *AgentHandler) consumePendingOp(ctx context.Context, token string, expec
 	var found bool
 
 	if h.redis == nil {
+		if h.cfg.AppEnv == "production" || os.Getenv("APP_ENV") == "production" {
+			return fmt.Errorf("AI_CONFIRMATION_STORE_UNAVAILABLE: Armazenamento de confirmações indisponível")
+		}
 		h.pendingMu.Lock()
 		op, found = h.pendingOps[token]
-		if found {
-			delete(h.pendingOps, token)
-		}
-		h.pendingMu.Unlock()
 		if !found {
-			h.incrementProjectFailures(ctx, projectID)
+			h.pendingMu.Unlock()
 			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
 		}
+
+		if op.Tool != expectedTool || op.ProjectID != projectID || subtle.ConstantTimeCompare([]byte(op.ArgsHash), []byte(currentArgsHash)) != 1 {
+			h.pendingMu.Unlock()
+			return fmt.Errorf("os parâmetros da requisição foram alterados desde a confirmação (tampering detectado). Por favor, repita o processo")
+		}
+
+		delete(h.pendingOps, token)
+		h.pendingMu.Unlock()
 	} else {
 		key := "cronflow:agent:pending:" + token
 		const luaConsume = `
 			local val = redis.call("GET", KEYS[1])
-			if val then
-				redis.call("DEL", KEYS[1])
+			if not val then
+				return "NOT_FOUND"
 			end
+			local ok, op = pcall(cjson.decode, val)
+			if not ok or not op then
+				return "MALFORMED"
+			end
+			if op.Tool ~= ARGV[1] or op.ProjectID ~= ARGV[2] or op.ArgsHash ~= ARGV[3] then
+				return "TAMPERING"
+			end
+			redis.call("DEL", KEYS[1])
 			return val
 		`
-		res, err := h.redis.Eval(ctx, luaConsume, []string{key}).Result()
+		res, err := h.redis.Eval(ctx, luaConsume, []string{key}, expectedTool, projectID, currentArgsHash).Result()
 		if err != nil {
-			h.incrementProjectFailures(ctx, projectID)
+			h.incrementFailures(ctx, projectID)
 			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
 		}
 
 		valStr, ok := res.(string)
 		if !ok || valStr == "" {
-			h.incrementProjectFailures(ctx, projectID)
+			h.incrementFailures(ctx, projectID)
 			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
+		}
+
+		if valStr == "NOT_FOUND" {
+			h.incrementFailures(ctx, projectID)
+			return fmt.Errorf("código de confirmação inválido, expirado ou já utilizado")
+		}
+
+		if valStr == "TAMPERING" {
+			return fmt.Errorf("os parâmetros da requisição foram alterados desde a confirmação (tampering detectado). Por favor, repita o processo")
+		}
+
+		if valStr == "MALFORMED" {
+			return fmt.Errorf("erro ao processar dados da confirmação pendente")
 		}
 
 		if err := json.Unmarshal([]byte(valStr), &op); err != nil {
 			return fmt.Errorf("erro ao decodificar dados da confirmação: %w", err)
 		}
-	}
-
-	if op.Tool != expectedTool {
-		h.incrementProjectFailures(ctx, projectID)
-		return fmt.Errorf("código de confirmação pertence a uma operação diferente")
-	}
-
-	if op.ProjectID != projectID {
-		h.incrementProjectFailures(ctx, projectID)
-		return fmt.Errorf("código de confirmação pertence a um projeto diferente")
-	}
-
-	if h.redis == nil && time.Now().After(op.ExpiresAt) {
-		return fmt.Errorf("código de confirmação expirou")
-	}
-
-	if subtle.ConstantTimeCompare([]byte(op.ArgsHash), []byte(currentArgsHash)) != 1 {
-		h.incrementProjectFailures(ctx, projectID)
-		return fmt.Errorf("os parâmetros da requisição foram alterados desde a confirmação (tampering detectado). Por favor, repita o processo")
 	}
 
 	return nil
