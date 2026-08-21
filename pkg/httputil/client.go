@@ -182,3 +182,9 @@ func Execute(ctx context.Context, method, url string, headers map[string]string,
 		DurationMs: durationMs,
 	}, nil
 }
+
+// SafeClient retorna o client HTTP protegido contra SSRF
+func SafeClient() *http.Client {
+	return client
+}
+
