@@ -108,7 +108,7 @@ func (h *HealthHandler) CheckAI(w http.ResponseWriter, r *http.Request) {
 	geminiStatus := "disabled"
 	geminiErr := ""
 
-	if h.cfg.GeminiAPIKey != "" {
+	if h.cfg.GeminiAPIKey != "" && !h.cfg.DisableGemini {
 		geminiStatus = "up"
 		client := &http.Client{Timeout: 8 * time.Second}
 		geminiUrl := "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite?key=" + h.cfg.GeminiAPIKey

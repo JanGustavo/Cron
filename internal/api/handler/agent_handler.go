@@ -334,14 +334,17 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	})
 
 	ctx := r.Context()
-	useGroq := h.cfg.GeminiAPIKey == ""
+	useGroq := h.cfg.GeminiAPIKey == "" || h.cfg.DisableGemini
 
 	if useGroq {
 		log.Println("🤖 Iniciando chat com o fallback Groq (LLaMA)")
 		reply, updatedHistory, err := h.runGroqChat(ctx, proj.ID, history)
 		if err != nil {
 			log.Printf("ERROR Groq Chat Execution: %v", err)
-			writeError(w, http.StatusInternalServerError, "Erro ao processar requisicao com Groq")
+			writeJSON(w, http.StatusOK, map[string]any{
+				"reply":   "Não consegui processar essa solicitação agora. Não executei nenhuma ação. Tente novamente ou consulte o painel.",
+				"history": history,
+			})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{

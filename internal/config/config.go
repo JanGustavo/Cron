@@ -42,6 +42,7 @@ type Config struct {
 	StripeWebhookSecret  string
 	StripePriceIDProMonthly string
 	StripePriceIDProYearly  string
+	DisableGemini          bool
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -78,6 +79,7 @@ func Load() *Config {
 		StripeWebhookSecret:  getEnv("STRIPE_WEBHOOK_SECRET", ""),
 		StripePriceIDProMonthly: getEnv("STRIPE_PRICE_ID_PRO_MONTHLY", ""),
 		StripePriceIDProYearly:  getEnv("STRIPE_PRICE_ID_PRO_YEARLY", ""),
+		DisableGemini:          getEnvAsBool("DISABLE_GEMINI", false),
 	}
 
 	// -------------------------------------------------------------
@@ -146,3 +148,18 @@ func getEnvAsInt(key string, fallback int) int {
 	}
 	return value
 }
+
+// getEnvAsBool lê uma variável de ambiente e converte para bool, usando o fallback em caso de falha ou ausência
+func getEnvAsBool(key string, fallback bool) bool {
+	valueStr := os.Getenv(key)
+	if valueStr == "" {
+		return fallback
+	}
+	value, err := strconv.ParseBool(valueStr)
+	if err != nil {
+		log.Printf("ERRO: variável de ambiente %s=%s inválida para bool, usando fallback: %t", key, valueStr, fallback)
+		return fallback
+	}
+	return value
+}
+
