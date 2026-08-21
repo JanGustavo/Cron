@@ -3,8 +3,11 @@ package handler
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"time"
 
+	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -14,17 +17,20 @@ type HealthHandler struct {
 	appEnv            string
 	schedulerInterval string
 	workerConcurrency int
+	cfg               *config.Config
 }
 
-func NewHealthHandler(db *sql.DB, redisURL string, appEnv, schedulerInterval string, workerConcurrency int) *HealthHandler {
+func NewHealthHandler(db *sql.DB, redisURL string, appEnv, schedulerInterval string, workerConcurrency int, cfg *config.Config) *HealthHandler {
 	return &HealthHandler{
 		db:                db,
 		redisURL:          redisURL,
 		appEnv:            appEnv,
 		schedulerInterval: schedulerInterval,
 		workerConcurrency: workerConcurrency,
+		cfg:               cfg,
 	}
 }
+
 
 var (
 	Version   = "v1.0.0-dev"
@@ -86,6 +92,122 @@ func (h *HealthHandler) Check(w http.ResponseWriter, r *http.Request) {
 			"appEnv":            h.appEnv,
 			"schedulerInterval": h.schedulerInterval,
 			"workerConcurrency": h.workerConcurrency,
+		},
+	})
+}
+
+// CheckAI — GET /v1/health/ai
+// @Summary Verificar disponibilidade dos modelos de IA configurados (Gemini / Groq)
+// @Description Realiza chamadas de diagnóstico leves para verificar se os tokens e modelos configurados do Gemini e Groq estão operacionais.
+// @Tags Health
+// @Produce json
+// @Success 200 {object} map[string]string "Modelos de IA disponíveis"
+// @Failure 502 {object} map[string]string "Serviço de IA indisponível ou configurado incorretamente"
+// @Router /v1/health/ai [get]
+func (h *HealthHandler) CheckAI(w http.ResponseWriter, r *http.Request) {
+	geminiStatus := "disabled"
+	geminiErr := ""
+
+	if h.cfg.GeminiAPIKey != "" {
+		geminiStatus = "up"
+		client := &http.Client{Timeout: 8 * time.Second}
+		geminiUrl := "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite?key=" + h.cfg.GeminiAPIKey
+
+		req, err := http.NewRequestWithContext(r.Context(), "GET", geminiUrl, nil)
+		if err != nil {
+			geminiStatus = "error"
+			geminiErr = err.Error()
+		} else {
+			resp, err := client.Do(req)
+			if err != nil {
+				geminiStatus = "down"
+				geminiErr = err.Error()
+			} else {
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					geminiStatus = "down"
+					var errBody map[string]any
+					_ = json.NewDecoder(resp.Body).Decode(&errBody)
+					errBytes, _ := json.Marshal(errBody)
+					geminiErr = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(errBytes))
+				}
+			}
+		}
+	}
+
+	groqStatus := "disabled"
+	groqErr := ""
+
+	if h.cfg.GroqAPIKey != "" {
+		groqStatus = "up"
+		client := &http.Client{Timeout: 8 * time.Second}
+		groqUrl := "https://api.groq.com/openai/v1/models"
+
+		req, err := http.NewRequestWithContext(r.Context(), "GET", groqUrl, nil)
+		if err != nil {
+			groqStatus = "error"
+			groqErr = err.Error()
+		} else {
+			req.Header.Set("Authorization", "Bearer "+h.cfg.GroqAPIKey)
+			resp, err := client.Do(req)
+			if err != nil {
+				groqStatus = "down"
+				groqErr = err.Error()
+			} else {
+				defer resp.Body.Close()
+				if resp.StatusCode != http.StatusOK {
+					groqStatus = "down"
+					var errBody map[string]any
+					_ = json.NewDecoder(resp.Body).Decode(&errBody)
+					errBytes, _ := json.Marshal(errBody)
+					groqErr = fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(errBytes))
+				} else {
+					var modelsResp struct {
+						Data []struct {
+							ID string `json:"id"`
+						} `json:"data"`
+					}
+					if err := json.NewDecoder(resp.Body).Decode(&modelsResp); err != nil {
+						groqStatus = "error"
+						groqErr = "Failed to decode models response: " + err.Error()
+					} else {
+						found := false
+						var availableModels []string
+						for _, m := range modelsResp.Data {
+							availableModels = append(availableModels, m.ID)
+							if m.ID == "openai/gpt-oss-20b" {
+								found = true
+							}
+						}
+						if !found {
+							groqStatus = "down"
+							groqErr = fmt.Sprintf("modelo 'openai/gpt-oss-20b' nao encontrado na lista de modelos disponiveis. Modelos disponiveis: %v", availableModels)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	status := "ok"
+	statusCode := http.StatusOK
+	if (geminiStatus == "down" || geminiStatus == "error" || geminiStatus == "disabled") &&
+		(groqStatus == "down" || groqStatus == "error" || groqStatus == "disabled") {
+		status = "error"
+		statusCode = http.StatusBadGateway
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	json.NewEncoder(w).Encode(map[string]any{
+		"status": status,
+		"gemini": map[string]any{
+			"status": geminiStatus,
+			"error":  geminiErr,
+		},
+		"groq": map[string]any{
+			"status": groqStatus,
+			"error":  groqErr,
 		},
 	})
 }

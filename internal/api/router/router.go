@@ -41,6 +41,7 @@ func New(
 	r.Head("/health", healthHandler.Check)
 	r.Get("/v1/health", healthHandler.Check)
 	r.Head("/v1/health", healthHandler.Check)
+	r.Get("/v1/health/ai", healthHandler.CheckAI)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Post("/v1/auth/signup", authHandler.Signup)
 	r.Post("/v1/auth/verify-email", authHandler.VerifyEmail)

@@ -27,9 +27,9 @@ type SugestaoValor struct {
 }
 
 var ValoresSugeridos = []SugestaoValor{
-	{Label: "☕ Café", Valor: "0.50"},
-	{Label: "🍕 Apoio", Valor: "1.00"},
-	{Label: "🚀 Top", Valor: "2.00"},
+	{Label: "☕ Café", Valor: "5.00"},
+	{Label: "🍺 Breja", Valor: "10.00"},
+	{Label: "🍕 Pizza", Valor: "20.00"},
 }
 
 // ListValores — GET /v1/pix/valores

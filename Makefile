@@ -1,9 +1,12 @@
-.PHONY: dev dev/api dev/worker dev/scheduler dev/front dev/backend migrate/up migrate/down sqlc/gen test lint build
+.PHONY: dev dev/api dev/worker dev/scheduler dev/front dev/backend migrate/up migrate/down sqlc/gen test lint build check/ai
 
 SHELL := /bin/bash
 
+check/ai:
+	@go run ./cmd/check-ai
+
 # Rodar todos os processos juntos com limpeza automática no Ctrl+C (kill 0)
-dev:
+dev: check/ai
 	@echo "⚡ Iniciando todos os serviços do CronFlow (API, Scheduler, Worker, Frontend)..."
 	@trap 'echo -e "\n🛑 Desligando serviços graciosamente..."; kill 0' INT; \
 	go run ./cmd/api & \
