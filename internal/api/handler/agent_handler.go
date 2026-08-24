@@ -510,8 +510,9 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{
-			"reply":   reply,
-			"history": updatedHistory,
+			"reply":         reply,
+			"history":       updatedHistory,
+			"aiQueriesUsed": freeAiUsed,
 		})
 		return
 	}
@@ -658,8 +659,9 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			writeJSON(w, http.StatusOK, map[string]any{
-				"reply":   reply,
-				"history": history,
+				"reply":         reply,
+				"history":       history,
+				"aiQueriesUsed": freeAiUsed,
 			})
 			return
 		}

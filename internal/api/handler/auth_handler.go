@@ -1185,6 +1185,7 @@ type ProfileResponse struct {
 	TotalJobsCreated   int                `json:"totalJobsCreated"`
 	Projects           []ProjectResponse  `json:"projects"`
 	Limits             PlanLimitsResponse `json:"limits"`
+	AiQueriesUsed      int                `json:"aiQueriesUsed"`
 	CurrentPeriodEnd   *string            `json:"currentPeriodEnd,omitempty"`
 }
 
@@ -1279,6 +1280,7 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 			AlertsWebhooksEnabled: limits.AlertsWebhooksEnabled,
 			MultiProjectEnabled:   limits.MultiProjectEnabled,
 		},
+		AiQueriesUsed:    u.AiQueriesUsed,
 		CurrentPeriodEnd: expiryStr,
 	}
 

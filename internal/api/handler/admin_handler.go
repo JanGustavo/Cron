@@ -48,11 +48,13 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	for _, u := range users {
 		jobCount, _ := h.userRepo.CountAllJobsByUserID(r.Context(), u.ID)
 
-		aiUsed := 0
-		if h.redis != nil {
+		aiUsed := u.AiQueriesUsed
+		if aiUsed == 0 && h.redis != nil {
 			redisKey := fmt.Sprintf("ai_usage:%s", u.ID)
 			val, _ := h.redis.Get(r.Context(), redisKey).Int()
-			aiUsed = val
+			if val > 0 {
+				aiUsed = val
+			}
 		}
 
 		dtos = append(dtos, AdminUserDTO{
