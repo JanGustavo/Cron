@@ -21,6 +21,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/api/middleware"
 	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/JanGustavo/Cron/internal/domain/job"
+	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/service"
 	"github.com/JanGustavo/Cron/pkg/httputil"
 	"github.com/redis/go-redis/v9"
@@ -61,13 +62,14 @@ type PendingOperation struct {
 
 type AgentHandler struct {
 	jobService *service.JobService
+	userRepo   *postgres.UserRepository
 	cfg        *config.Config
 	pendingOps map[string]PendingOperation
 	pendingMu  sync.RWMutex
 	redis      *redis.Client
 }
 
-func NewAgentHandler(jobService *service.JobService, cfg *config.Config) *AgentHandler {
+func NewAgentHandler(jobService *service.JobService, userRepo *postgres.UserRepository, cfg *config.Config) *AgentHandler {
 	var rClient *redis.Client
 	if cfg.RedisURL != "" {
 		opt, err := redis.ParseURL(cfg.RedisURL)
@@ -81,6 +83,7 @@ func NewAgentHandler(jobService *service.JobService, cfg *config.Config) *AgentH
 	}
 	return &AgentHandler{
 		jobService: jobService,
+		userRepo:   userRepo,
 		cfg:        cfg,
 		pendingOps: make(map[string]PendingOperation),
 		redis:      rClient,
@@ -407,11 +410,15 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 
 	var freeAiUsed int
 	if !limits.WorkflowsEnabled {
-		redisKey := fmt.Sprintf("ai_usage:%s", proj.UserID)
-		if h.redis != nil {
+		u, _ := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
+		if u != nil {
+			freeAiUsed = u.AiQueriesUsed
+		} else if h.redis != nil {
+			redisKey := fmt.Sprintf("ai_usage:%s", proj.UserID)
 			usedVal, _ := h.redis.Get(r.Context(), redisKey).Int()
 			freeAiUsed = usedVal
 		}
+
 		if freeAiUsed >= 3 {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusPaymentRequired)
@@ -423,8 +430,16 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		freeAiUsed++
+
+		newCount, err := h.userRepo.IncrementAIQueriesUsed(r.Context(), proj.UserID)
+		if err == nil {
+			freeAiUsed = newCount
+		} else {
+			freeAiUsed++
+		}
+
 		if h.redis != nil {
+			redisKey := fmt.Sprintf("ai_usage:%s", proj.UserID)
 			h.redis.Set(r.Context(), redisKey, freeAiUsed, 0)
 		}
 	}

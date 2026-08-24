@@ -180,12 +180,12 @@ func (r *UserRepository) FindProjectByKeyHash(ctx context.Context, keyHash strin
 func (r *UserRepository) FindUserByProjectID(ctx context.Context, projectID string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.plan, COALESCE(u.password_hash, ''), COALESCE(u.full_name, ''), COALESCE(u.cpf, ''), u.email_alerts_enabled, u.daily_digest_enabled, COALESCE(u.timezone, 'America/Sao_Paulo'), COALESCE(u.digest_hour, 18), u.last_digest_sent_at, u.is_verified, COALESCE(u.role, 'user'), u.created_at
+		SELECT u.id, u.email, u.plan, COALESCE(u.password_hash, ''), COALESCE(u.full_name, ''), COALESCE(u.cpf, ''), u.email_alerts_enabled, u.daily_digest_enabled, COALESCE(u.timezone, 'America/Sao_Paulo'), COALESCE(u.digest_hour, 18), u.last_digest_sent_at, u.is_verified, COALESCE(u.role, 'user'), COALESCE(u.ai_queries_used, 0), u.created_at
 		FROM users u
 		INNER JOIN projects p ON p.user_id = u.id
 		WHERE p.id = $1`,
 		projectID,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.AiQueriesUsed, &u.CreatedAt)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -358,7 +358,7 @@ func (r *UserRepository) UpdateVerified(ctx context.Context, userID string, veri
 // ListAllUsersForAdmin lista todos os usuários cadastrados para a área administrativa.
 func (r *UserRepository) ListAllUsersForAdmin(ctx context.Context) ([]*user.User, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, COALESCE(role, 'user'), created_at 
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, COALESCE(role, 'user'), COALESCE(ai_queries_used, 0), created_at 
 		 FROM users 
 		 ORDER BY created_at DESC`,
 	)
@@ -370,13 +370,35 @@ func (r *UserRepository) ListAllUsersForAdmin(ctx context.Context) ([]*user.User
 	var users []*user.User
 	for rows.Next() {
 		u := &user.User{}
-		err := rows.Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.CreatedAt)
+		err := rows.Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.AiQueriesUsed, &u.CreatedAt)
 		if err != nil {
 			return nil, fmt.Errorf("UserRepository.ListAllUsersForAdmin scan: %w", err)
 		}
 		users = append(users, u)
 	}
 	return users, nil
+}
+
+// IncrementAIQueriesUsed incrementa a cota de uso de IA do usuário no PostgreSQL.
+func (r *UserRepository) IncrementAIQueriesUsed(ctx context.Context, userID string) (int, error) {
+	var newCount int
+	err := r.db.QueryRowContext(ctx,
+		`UPDATE users SET ai_queries_used = ai_queries_used + 1 WHERE id = $1 RETURNING ai_queries_used`,
+		userID,
+	).Scan(&newCount)
+	if err != nil {
+		return 0, fmt.Errorf("UserRepository.IncrementAIQueriesUsed: %w", err)
+	}
+	return newCount, nil
+}
+
+// ResetAIQueriesUsed reseta a cota de uso de IA do usuário para 0 no PostgreSQL.
+func (r *UserRepository) ResetAIQueriesUsed(ctx context.Context, userID string) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE users SET ai_queries_used = 0 WHERE id = $1`, userID)
+	if err != nil {
+		return fmt.Errorf("UserRepository.ResetAIQueriesUsed: %w", err)
+	}
+	return nil
 }
 
 // UpdateUserPlanByAdmin altera o plano de um usuário diretamente pela administração.

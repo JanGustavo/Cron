@@ -123,6 +123,8 @@ func (h *AdminHandler) ResetUserAIQuota(w http.ResponseWriter, r *http.Request) 
 	}
 	targetUserID := pathParts[4]
 
+	_ = h.userRepo.ResetAIQueriesUsed(r.Context(), targetUserID)
+
 	if h.redis != nil {
 		redisKey := fmt.Sprintf("ai_usage:%s", targetUserID)
 		_ = h.redis.Del(r.Context(), redisKey).Err()

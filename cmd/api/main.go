@@ -50,6 +50,7 @@ func main() {
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf VARCHAR(11) UNIQUE; 
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT; 
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user';
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS ai_queries_used INT NOT NULL DEFAULT 0;
 		ALTER TABLE projects ADD COLUMN IF NOT EXISTS webhook_secret TEXT; 
 		ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS email_alerts_enabled BOOLEAN NOT NULL DEFAULT FALSE;
@@ -169,7 +170,7 @@ func main() {
 	jobHandler := handler.NewJobHandler(jobService)
 	executionHandler := handler.NewExecutionHandler(jobService, executionRepo)
 	authHandler := handler.NewAuthHandler(userRepo, mailService, entitlementEngine, cfg)
-	agentHandler := handler.NewAgentHandler(jobService, cfg)
+	agentHandler := handler.NewAgentHandler(jobService, userRepo, cfg)
 	pixHandler := handler.NewPixHandler()
 	metricsHandler := handler.NewMetricsHandler(cfg.RedisURL)
 	billingHandler := handler.NewBillingHandler(entitlementEngine, cfg)

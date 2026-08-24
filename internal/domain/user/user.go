@@ -29,6 +29,7 @@ type User struct {
 	LastDigestSentAt   *time.Time
 	IsVerified         bool
 	Role               string
+	AiQueriesUsed      int
 	CreatedAt          time.Time
 }
 
