@@ -24,6 +24,7 @@ func New(
 	pixHandler *handler.PixHandler,
 	metricsHandler *handler.MetricsHandler,
 	billingHandler *handler.BillingHandler,
+	adminHandler *handler.AdminHandler,
 	entitlementEngine *service.EntitlementEngine,
 	jwtSecret string,
 ) *chi.Mux {
@@ -73,6 +74,17 @@ func New(
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(userRepo, jwtSecret))
+
+		// Rotas Administrativas (Apenas Admin)
+		r.Route("/v1/admin", func(r chi.Router) {
+			r.Use(middleware.RequireAdmin(userRepo))
+			r.Get("/me", adminHandler.CheckCurrentAdminRole)
+			r.Get("/users", adminHandler.ListUsers)
+			r.Put("/users/{id}/plan", adminHandler.UpdateUserPlan)
+			r.Post("/users/{id}/reset-ai", adminHandler.ResetUserAIQuota)
+			r.Delete("/users/{id}", adminHandler.DeleteUser)
+			r.Get("/stats", adminHandler.GetSystemStats)
+		})
 
 		r.Post("/v1/agent/chat", agentHandler.Chat)
 		r.Post("/v1/projects/webhook-secret/rotate", authHandler.RotateWebhookSecret)

@@ -405,14 +405,28 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var freeAiUsed int
 	if !limits.WorkflowsEnabled {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusPaymentRequired)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "O assistente de IA (Flow AI Copilot) é exclusivo para clientes do Plano PRO. Faça o upgrade da sua conta para continuar!",
-			"code":  "LIMIT_EXCEEDED",
-		})
-		return
+		redisKey := fmt.Sprintf("ai_usage:%s", proj.UserID)
+		if h.redis != nil {
+			usedVal, _ := h.redis.Get(r.Context(), redisKey).Int()
+			freeAiUsed = usedVal
+		}
+		if freeAiUsed >= 3 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusPaymentRequired)
+			json.NewEncoder(w).Encode(map[string]any{
+				"error": "Você atingiu o limite de 3 mensagens gratuitas da IA no Plano Free. Faça o upgrade para o Plano PRO para mensagens ilimitadas! 🚀",
+				"code":  "FREE_AI_LIMIT_REACHED",
+				"used":  freeAiUsed,
+				"limit": 3,
+			})
+			return
+		}
+		freeAiUsed++
+		if h.redis != nil {
+			h.redis.Set(r.Context(), redisKey, freeAiUsed, 0)
+		}
 	}
 
 	var input AgentChatRequest

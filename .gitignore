@@ -44,3 +44,6 @@ Thumbs.db
 *.swo
 *~
 .aider*
+
+# Scratch folder
+scratch/

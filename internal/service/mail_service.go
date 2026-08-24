@@ -1,28 +1,72 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"net/smtp"
+	"os"
 )
 
 type MailService struct {
-	host string
-	port int
-	user string
-	pass string
-	from string
+	host      string
+	port      int
+	user      string
+	pass      string
+	from      string
+	resendKey string
 }
 
 func NewMailService(host string, port int, user, pass, from string) *MailService {
 	return &MailService{
-		host: host,
-		port: port,
-		user: user,
-		pass: pass,
-		from: from,
+		host:      host,
+		port:      port,
+		user:      user,
+		pass:      pass,
+		from:      from,
+		resendKey: os.Getenv("RESEND_API_KEY"),
 	}
+}
+
+func (s *MailService) sendViaResend(to, subject, body string) error {
+	url := "https://api.resend.com/emails"
+
+	payload := map[string]interface{}{
+		"from":    s.from,
+		"to":      []string{to},
+		"subject": subject,
+		"html":    body,
+	}
+
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal resend payload: %w", err)
+	}
+
+	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
+	if err != nil {
+		return fmt.Errorf("failed to create http request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+s.resendKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to execute http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var resErr map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&resErr)
+		return fmt.Errorf("resend api returned error status %d: %v", resp.StatusCode, resErr)
+	}
+
+	return nil
 }
 
 // SendPasswordResetEmail envia o link de redefinição de senha para o e-mail do usuário.
@@ -64,6 +108,15 @@ func (s *MailService) SendPasswordResetEmail(to, resetLink string) error {
     </div>
 </body>
 </html>`, resetLink, resetLink, resetLink)
+
+	if s.resendKey != "" {
+		err := s.sendViaResend(to, subject, body)
+		if err != nil {
+			return fmt.Errorf("MailService.SendPasswordResetEmail (Resend): %w", err)
+		}
+		log.Printf("MailService: E-mail de redefinição de senha enviado com sucesso via Resend para %s", to)
+		return nil
+	}
 
 	if s.host == "" || s.user == "" {
 		log.Printf("\n========================================================================\n" +
@@ -129,6 +182,15 @@ func (s *MailService) SendVerificationEmail(to, verificationLink string) error {
     </div>
 </body>
 </html>`, verificationLink, verificationLink, verificationLink)
+
+	if s.resendKey != "" {
+		err := s.sendViaResend(to, subject, body)
+		if err != nil {
+			return fmt.Errorf("MailService.SendVerificationEmail (Resend): %w", err)
+		}
+		log.Printf("MailService: E-mail de confirmação enviado com sucesso via Resend para %s", to)
+		return nil
+	}
 
 	if s.host == "" || s.user == "" {
 		log.Printf("\n========================================================================\n" +
@@ -248,6 +310,15 @@ func (s *MailService) SendFailureAlert(to, frontendURL string, jName, jID, sched
     </div>
 </body>
 </html>`, jName, statusStr, durationMs, errorMsg, jobJSON, btnLink)
+
+	if s.resendKey != "" {
+		err := s.sendViaResend(to, subject, body)
+		if err != nil {
+			return fmt.Errorf("MailService.SendFailureAlert (Resend): %w", err)
+		}
+		log.Printf("MailService: E-mail de alerta de falha enviado com sucesso via Resend para %s", to)
+		return nil
+	}
 
 	if s.host == "" || s.user == "" {
 		log.Printf("\n========================================================================\n" +
@@ -392,6 +463,15 @@ func (s *MailService) SendDailyDigest(to, frontendURL string, items []FailedJobD
     </div>
 </body>
 </html>`, cardsHTML)
+
+	if s.resendKey != "" {
+		err := s.sendViaResend(to, subject, body)
+		if err != nil {
+			return fmt.Errorf("MailService.SendDailyDigest (Resend): %w", err)
+		}
+		log.Printf("MailService: E-mail de resumo diário enviado com sucesso via Resend para %s", to)
+		return nil
+	}
 
 	if s.host == "" || s.user == "" {
 		log.Printf("\n========================================================================\n" +

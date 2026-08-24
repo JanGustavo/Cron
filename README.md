@@ -1,7 +1,7 @@
 # 🚀 CronFlow — Plataforma de Agendamento e Automação de Tarefas
 
 ## 🌐 Link de Produção
-O sistema está implantado e pronto para uso em: **[https://cron.jangustavo.me/](https://cron.jangustavo.me/)**
+O sistema está implantado e pronto para uso em: **[https://cronflow.jangustavo.me/](https://cronflow.jangustavo.me/)**
 
 A interface web (frontend) e os serviços de processamento (backend) estão organizados em repositórios separados no GitHub:
 - **Repositório do Backend (Este Repo)**: [github.com/JanGustavo/Cron](https://github.com/JanGustavo/Cron)

@@ -28,6 +28,7 @@ type User struct {
 	DigestHour         int
 	LastDigestSentAt   *time.Time
 	IsVerified         bool
+	Role               string
 	CreatedAt          time.Time
 }
 

@@ -13,6 +13,7 @@ import (
 	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/service"
+	"github.com/redis/go-redis/v9"
 )
 
 // @title CronFlow API
@@ -44,10 +45,11 @@ func main() {
 	}
 	defer db.Close()
 
-	// Garante DDL do CPF e Nome Completo nos bancos local e prod
+	// Garante DDL do CPF, Nome Completo e Role ADM nos bancos local e prod
 	_, _ = db.Exec(`
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS cpf VARCHAR(11) UNIQUE; 
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name TEXT; 
+		ALTER TABLE users ADD COLUMN IF NOT EXISTS role VARCHAR(20) NOT NULL DEFAULT 'user';
 		ALTER TABLE projects ADD COLUMN IF NOT EXISTS webhook_secret TEXT; 
 		ALTER TABLE api_keys ADD COLUMN IF NOT EXISTS last_used_at TIMESTAMPTZ;
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS email_alerts_enabled BOOLEAN NOT NULL DEFAULT FALSE;
@@ -55,6 +57,38 @@ func main() {
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone VARCHAR(50) NOT NULL DEFAULT 'America/Sao_Paulo';
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS digest_hour INT NOT NULL DEFAULT 18;
 		ALTER TABLE users ADD COLUMN IF NOT EXISTS last_digest_sent_at TIMESTAMPTZ;
+
+		INSERT INTO users (
+			id,
+			email,
+			password_hash,
+			plan,
+			full_name,
+			is_verified,
+			role,
+			created_at
+		) VALUES (
+			'a0000000-0000-0000-0000-000000000001',
+			'jandersongustavo1@gmail.com',
+			'$2a$10$bgJ4mHedhX1XgwqWm9vSh.2yrE1YVOo4aR7dpIm615fihAAO3SRdW',
+			'pro',
+			'Janderson Gustavo (ADM)',
+			TRUE,
+			'admin',
+			NOW()
+		) ON CONFLICT (email) DO UPDATE SET
+			role = 'admin',
+			plan = 'pro',
+			is_verified = TRUE,
+			password_hash = '$2a$10$bgJ4mHedhX1XgwqWm9vSh.2yrE1YVOo4aR7dpIm615fihAAO3SRdW';
+
+		INSERT INTO projects (user_id, name)
+		SELECT id, 'Workspace ADM Principal'
+		FROM users
+		WHERE email = 'jandersongustavo1@gmail.com'
+		AND NOT EXISTS (
+			SELECT 1 FROM projects WHERE user_id = users.id
+		);
 
 		CREATE TABLE IF NOT EXISTS plans (
 			code VARCHAR(50) PRIMARY KEY,
@@ -139,9 +173,18 @@ func main() {
 	pixHandler := handler.NewPixHandler()
 	metricsHandler := handler.NewMetricsHandler(cfg.RedisURL)
 	billingHandler := handler.NewBillingHandler(entitlementEngine, cfg)
+	
+	var rClient *redis.Client
+	if cfg.RedisURL != "" {
+		opt, err := redis.ParseURL(cfg.RedisURL)
+		if err == nil {
+			rClient = redis.NewClient(opt)
+		}
+	}
+	adminHandler := handler.NewAdminHandler(userRepo, rClient)
 
 	// Router
-	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, billingHandler, entitlementEngine, cfg.JWTSecret)
+	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, billingHandler, adminHandler, entitlementEngine, cfg.JWTSecret)
 
 	// 5. sobe o servidor
 	log.Printf("API rodando em http://localhost:%s", cfg.Port)

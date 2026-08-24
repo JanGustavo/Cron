@@ -1,13 +1,13 @@
 # Relatório de Latência e Estresse de Conexões — CronFlow Produção
 
-*   **Host da API:** `https://cron.jangustavo.me`
+*   **Host da API:** `https://cronflow.jangustavo.me`
 *   **Usuário de Teste:** `jeeh2200@gmail.com`
 *   **Volume Total de Disparos Concorrentes:** `90 execuções` (2 jobs × 45 disparos/cada)
 
 ## 📊 1. Estatísticas de Latência por Categoria
 | Categoria | Endpoint Alvo | Amostras | Min Latência | Média Latência | Mediana Latência | Max Latência |
 |---|---|---|---|---|---|---|
-| LOCAL | `https://cron.jangustavo.me/health` | 45 | 1ms | 11.73ms | 2ms | 181ms |
+| LOCAL | `https://cronflow.jangustavo.me/health` | 45 | 1ms | 11.73ms | 2ms | 181ms |
 | DISTANT_US | `https://httpbin.org/get` | 45 | 8ms | 51.13ms | 11ms | 710ms |
 
 ## 🧠 2. Uso de Memória e Goroutines (Go Runtime)
