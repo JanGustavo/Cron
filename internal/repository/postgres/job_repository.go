@@ -270,12 +270,11 @@ func (r *JobRepository) UpdateStatus(ctx context.Context, id string, status job.
 	return err
 }
 
-// IncrementFailures incrementa o contador e marca como 'failing' se >= 3.
+// IncrementFailures incrementa o contador e suspende o job ('failing') se >= 3.
 func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE jobs SET
 			consecutive_failures = LEAST(3, consecutive_failures + 1),
-			last_run_status = 'failed',
 			status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'failing' ELSE status END,
 			last_run_at = NOW(),
 			updated_at = NOW()
@@ -287,7 +286,7 @@ func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error 
 // ResetFailures limpa o contador após sucesso.
 func (r *JobRepository) ResetFailures(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET consecutive_failures = 0, last_run_status = 'success', status = 'active', last_run_at = NOW(), updated_at = NOW() WHERE id = $1`,
+		`UPDATE jobs SET consecutive_failures = 0, status = 'active', last_run_at = NOW(), updated_at = NOW() WHERE id = $1`,
 		id,
 	)
 	return err
@@ -318,6 +317,28 @@ func (r *JobRepository) CountByProject(ctx context.Context, projectID string) (i
 		projectID,
 	).Scan(&count)
 	return count, err
+}
+
+// PauseExcessJobsForUser mantém apenas os N jobs mais antigos ativos e pausa todos os excedentes ao ocorrer downgrade.
+func (r *JobRepository) PauseExcessJobsForUser(ctx context.Context, userID string, maxAllowed int) (int64, error) {
+	query := `
+		WITH user_active_jobs AS (
+			SELECT j.id,
+			       ROW_NUMBER() OVER (ORDER BY j.created_at ASC) as row_num
+			FROM jobs j
+			JOIN projects p ON j.project_id = p.id
+			WHERE p.user_id = $1 AND j.status = 'active'
+		)
+		UPDATE jobs
+		SET status = 'paused', updated_at = NOW()
+		WHERE id IN (
+			SELECT id FROM user_active_jobs WHERE row_num > $2
+		);`
+	res, err := r.db.ExecContext(ctx, query, userID, maxAllowed)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // Update atualiza as configurações de um job no banco.

@@ -179,9 +179,13 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 
 	// Encadeamento de Jobs (Workflow/Pipeline): se houver NextJobID configurado, enfileira-o
 	if j.NextJobID != nil && *j.NextJobID != "" {
-		log.Printf("worker: job %s concluído com sucesso — enfileirando próximo job %s", j.ID, *j.NextJobID)
-		if err := w.enqueuer.Enqueue(ctx, *j.NextJobID); err != nil {
-			log.Printf("worker: erro ao enfileirar próximo job %s: %v", *j.NextJobID, err)
+		if *j.NextJobID == j.ID {
+			log.Printf("worker: auto-referência detectada no job %s — interrompendo loop infinito de execução", j.ID)
+		} else {
+			log.Printf("worker: job %s concluído com sucesso — enfileirando próximo job %s", j.ID, *j.NextJobID)
+			if err := w.enqueuer.Enqueue(ctx, *j.NextJobID); err != nil {
+				log.Printf("worker: erro ao enfileirar próximo job %s: %v", *j.NextJobID, err)
+			}
 		}
 	}
 

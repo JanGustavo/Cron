@@ -63,12 +63,14 @@ type ProjectResponse struct {
 }
 
 type UserResponse struct {
-	ID        string              `json:"id"`
-	Email     string              `json:"email"`
-	Plan      string              `json:"plan"`
-	FullName  string              `json:"fullName,omitempty"`
-	CreatedAt string              `json:"createdAt"`
-	Limits    *PlanLimitsResponse `json:"limits,omitempty"`
+	ID                 string              `json:"id"`
+	Email              string              `json:"email"`
+	Plan               string              `json:"plan"`
+	FullName           string              `json:"fullName,omitempty"`
+	CreatedAt          string              `json:"createdAt"`
+	CurrentPeriodEnd   *string             `json:"currentPeriodEnd,omitempty"`
+	CancelAtPeriodEnd  bool                `json:"cancelAtPeriodEnd,omitempty"`
+	Limits             *PlanLimitsResponse `json:"limits,omitempty"`
 }
 
 type AuthResponse struct {
@@ -396,6 +398,17 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var currentPeriodEndStr *string
+	var cancelAtPeriodEnd bool
+	sub, _ := h.entitlementEngine.GetSubscription(r.Context(), u.ID)
+	if sub != nil {
+		cancelAtPeriodEnd = sub.CancelAtPeriodEnd
+		if sub.CurrentPeriodEnd != nil {
+			formatted := sub.CurrentPeriodEnd.Format(time.RFC3339)
+			currentPeriodEndStr = &formatted
+		}
+	}
+
 	res := AuthResponse{
 		Token: TokenResponse{
 			AccessToken:  jwtToken,
@@ -404,11 +417,13 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			ExpiresIn:    int(duration.Seconds()),
 		},
 		User: UserResponse{
-			ID:        u.ID,
-			Email:     u.Email,
-			Plan:      string(u.Plan),
-			FullName:  u.FullName,
-			CreatedAt: u.CreatedAt.Format(time.RFC3339),
+			ID:                u.ID,
+			Email:             u.Email,
+			Plan:              string(u.Plan),
+			FullName:          u.FullName,
+			CreatedAt:         u.CreatedAt.Format(time.RFC3339),
+			CurrentPeriodEnd:  currentPeriodEndStr,
+			CancelAtPeriodEnd: cancelAtPeriodEnd,
 			Limits: &PlanLimitsResponse{
 				MaxJobs:               limits.MaxJobs,
 				MaxUsers:              limits.MaxUsers,
@@ -541,6 +556,17 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var currentPeriodEndStr *string
+	var cancelAtPeriodEnd bool
+	sub, _ := h.entitlementEngine.GetSubscription(r.Context(), u.ID)
+	if sub != nil {
+		cancelAtPeriodEnd = sub.CancelAtPeriodEnd
+		if sub.CurrentPeriodEnd != nil {
+			formatted := sub.CurrentPeriodEnd.Format(time.RFC3339)
+			currentPeriodEndStr = &formatted
+		}
+	}
+
 	res := AuthResponse{
 		Token: TokenResponse{
 			AccessToken:  jwtToken,
@@ -549,11 +575,13 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 			ExpiresIn:    int(duration.Seconds()),
 		},
 		User: UserResponse{
-			ID:        u.ID,
-			Email:     u.Email,
-			Plan:      string(u.Plan),
-			FullName:  u.FullName,
-			CreatedAt: u.CreatedAt.Format(time.RFC3339),
+			ID:                u.ID,
+			Email:             u.Email,
+			Plan:              string(u.Plan),
+			FullName:          u.FullName,
+			CreatedAt:         u.CreatedAt.Format(time.RFC3339),
+			CurrentPeriodEnd:  currentPeriodEndStr,
+			CancelAtPeriodEnd: cancelAtPeriodEnd,
 			Limits: &PlanLimitsResponse{
 				MaxJobs:               limits.MaxJobs,
 				MaxUsers:              limits.MaxUsers,

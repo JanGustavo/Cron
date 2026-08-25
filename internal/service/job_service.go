@@ -87,8 +87,13 @@ func (s *JobService) Create(ctx context.Context, input CreateJobInput) (*job.Job
 	}
 
 	// 3.5. Valida restrições de features do plano (Workflows e Alertas)
-	if input.NextJobID != nil && *input.NextJobID != "" && !limits.WorkflowsEnabled {
-		return nil, ErrWorkflowsDisabled
+	if input.NextJobID != nil && *input.NextJobID != "" {
+		if !limits.WorkflowsEnabled {
+			return nil, ErrWorkflowsDisabled
+		}
+		if s.detectCycle(ctx, "", *input.NextJobID) {
+			return nil, fmt.Errorf("ciclo de workflow detectado: o destino %s geraria um loop de execução infinito", *input.NextJobID)
+		}
 	}
 	if input.WebhookAlertURL != nil && *input.WebhookAlertURL != "" && !limits.AlertsWebhooksEnabled {
 		return nil, ErrWebhookAlertsDisabled
@@ -231,8 +236,13 @@ func (s *JobService) Update(ctx context.Context, input UpdateJobInput) (*job.Job
 	}
 
 	// Valida restrições de features do plano (Workflows e Alertas)
-	if input.NextJobID != nil && *input.NextJobID != "" && !limits.WorkflowsEnabled {
-		return nil, ErrWorkflowsDisabled
+	if input.NextJobID != nil && *input.NextJobID != "" {
+		if !limits.WorkflowsEnabled {
+			return nil, ErrWorkflowsDisabled
+		}
+		if s.detectCycle(ctx, input.ID, *input.NextJobID) {
+			return nil, fmt.Errorf("ciclo de workflow detectado: encadear o job %s no destino %s geraria um loop infinito de execução", input.ID, *input.NextJobID)
+		}
 	}
 	if input.WebhookAlertURL != nil && *input.WebhookAlertURL != "" && !limits.AlertsWebhooksEnabled {
 		return nil, ErrWebhookAlertsDisabled
@@ -263,4 +273,32 @@ func (s *JobService) Update(ctx context.Context, input UpdateJobInput) (*job.Job
 	}
 
 	return j, nil
+}
+
+// detectCycle verifica se atribuir targetNextJobID ao job startJobID criaria um ciclo/loop infinito no workflow.
+func (s *JobService) detectCycle(ctx context.Context, startJobID, targetNextJobID string) bool {
+	if startJobID != "" && startJobID == targetNextJobID {
+		return true // Auto-referência direta (A ➔ A)
+	}
+
+	visited := make(map[string]bool)
+	current := targetNextJobID
+
+	for current != "" {
+		if startJobID != "" && current == startJobID {
+			return true // Ciclo detectado (ex: A ➔ B ➔ A)
+		}
+		if visited[current] {
+			return true // Loop pré-existente no caminho
+		}
+		visited[current] = true
+
+		nextJob, err := s.jobRepo.FindByID(ctx, current)
+		if err != nil || nextJob == nil || nextJob.NextJobID == nil || *nextJob.NextJobID == "" {
+			break
+		}
+		current = *nextJob.NextJobID
+	}
+
+	return false
 }

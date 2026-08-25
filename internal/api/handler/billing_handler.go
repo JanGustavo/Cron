@@ -15,6 +15,7 @@ import (
 	"github.com/stripe/stripe-go/v72"
 	portalsession "github.com/stripe/stripe-go/v72/billingportal/session"
 	checkoutsession "github.com/stripe/stripe-go/v72/checkout/session"
+	"github.com/stripe/stripe-go/v72/customer"
 	"github.com/stripe/stripe-go/v72/sub"
 	"github.com/stripe/stripe-go/v72/webhook"
 )
@@ -121,14 +122,29 @@ func (h *BillingHandler) CreatePortalSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	if sub == nil || sub.ProviderCustomerID == nil || *sub.ProviderCustomerID == "" {
-		writeError(w, http.StatusBadRequest, "Usuário não possui uma assinatura ativa no Stripe")
-		return
+	var customerID string
+	if sub != nil && sub.ProviderCustomerID != nil && *sub.ProviderCustomerID != "" {
+		customerID = *sub.ProviderCustomerID
+	} else {
+		// Se o usuário não possui Customer ID no Stripe (ex: criado manualmente/teste), cria no Stripe
+		cParams := &stripe.CustomerParams{}
+		cParams.AddMetadata("user_id", proj.UserID)
+		c, err := customer.New(cParams)
+		if err != nil {
+			log.Printf("Erro ao registrar cliente no Stripe: %v", err)
+			writeError(w, http.StatusBadRequest, "Usuário não possui uma assinatura ou cliente ativo no Stripe. Inicie a assinatura pelo botão Assinar PRO.")
+			return
+		}
+		customerID = c.ID
+		if sub != nil {
+			sub.ProviderCustomerID = &customerID
+			_ = h.entitlementEngine.UpsertSubscription(r.Context(), sub)
+		}
 	}
 
 	returnURL := h.cfg.FrontendURL + "/profile"
 	params := &stripe.BillingPortalSessionParams{
-		Customer:  stripe.String(*sub.ProviderCustomerID),
+		Customer:  stripe.String(customerID),
 		ReturnURL: stripe.String(returnURL),
 	}
 

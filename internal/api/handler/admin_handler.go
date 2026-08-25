@@ -139,6 +139,44 @@ func (h *AdminHandler) ResetUserAIQuota(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
+type ToggleVerifyRequest struct {
+	Verified bool `json:"verified"`
+}
+
+// VerifyUserEmail — POST /v1/admin/users/{id}/verify
+func (h *AdminHandler) VerifyUserEmail(w http.ResponseWriter, r *http.Request) {
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 5 {
+		writeError(w, http.StatusBadRequest, "ID do usuário não especificado")
+		return
+	}
+	targetUserID := pathParts[4]
+
+	var req ToggleVerifyRequest
+	req.Verified = true
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&req)
+	}
+
+	err := h.userRepo.UpdateVerified(r.Context(), targetUserID, req.Verified)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Erro ao atualizar verificação de e-mail: %v", err))
+		return
+	}
+
+	statusMsg := "e-mail marcado como verificado"
+	if !req.Verified {
+		statusMsg = "e-mail marcado como pendente de verificação"
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"status":     "success",
+		"message":    fmt.Sprintf("Status de verificação atualizado: %s", statusMsg),
+		"userId":     targetUserID,
+		"isVerified": req.Verified,
+	})
+}
+
 // GetSystemStats — GET /v1/admin/stats
 func (h *AdminHandler) GetSystemStats(w http.ResponseWriter, r *http.Request) {
 	users, err := h.userRepo.ListAllUsersForAdmin(r.Context())

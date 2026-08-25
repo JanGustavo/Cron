@@ -401,7 +401,7 @@ func (r *UserRepository) ResetAIQueriesUsed(ctx context.Context, userID string) 
 	return nil
 }
 
-// UpdateUserPlanByAdmin altera o plano de um usuário diretamente pela administração.
+// UpdateUserPlanByAdmin altera o plano de um usuário diretamente pela administração e atualiza a assinatura.
 func (r *UserRepository) UpdateUserPlanByAdmin(ctx context.Context, userID, newPlan string) error {
 	_, err := r.db.ExecContext(ctx,
 		`UPDATE users SET plan = $1 WHERE id = $2`,
@@ -410,6 +410,46 @@ func (r *UserRepository) UpdateUserPlanByAdmin(ctx context.Context, userID, newP
 	if err != nil {
 		return fmt.Errorf("UserRepository.UpdateUserPlanByAdmin: %w", err)
 	}
+
+	if newPlan == "pro" {
+		_, _ = r.db.ExecContext(ctx, `
+			INSERT INTO subscriptions (user_id, plan_code, status, cancel_at_period_end, current_period_start, current_period_end, updated_at)
+			VALUES ($1, 'pro', 'active', false, NOW(), NOW() + INTERVAL '30 days', NOW())
+			ON CONFLICT (user_id) DO UPDATE SET
+				plan_code = 'pro',
+				status = 'active',
+				cancel_at_period_end = false,
+				current_period_end = NOW() + INTERVAL '30 days',
+				updated_at = NOW()`,
+			userID,
+		)
+	} else {
+		_, _ = r.db.ExecContext(ctx, `
+			INSERT INTO subscriptions (user_id, plan_code, status, cancel_at_period_end, updated_at)
+			VALUES ($1, 'free', 'active', false, NOW())
+			ON CONFLICT (user_id) DO UPDATE SET
+				plan_code = 'free',
+				status = 'active',
+				cancel_at_period_end = false,
+				updated_at = NOW()`,
+			userID,
+		)
+		// Pausa jobs excedentes (> 5) ao reverter para Free
+		_, _ = r.db.ExecContext(ctx, `
+			WITH user_active_jobs AS (
+				SELECT j.id,
+				       ROW_NUMBER() OVER (ORDER BY j.created_at ASC) as row_num
+				FROM jobs j
+				JOIN projects p ON j.project_id = p.id
+				WHERE p.user_id = $1 AND j.status = 'active'
+			)
+			UPDATE jobs
+			SET status = 'paused', updated_at = NOW()
+			WHERE id IN (
+				SELECT id FROM user_active_jobs WHERE row_num > 5
+			);`, userID)
+	}
+
 	return nil
 }
 

@@ -84,6 +84,7 @@ func New(
 			r.Get("/users", adminHandler.ListUsers)
 			r.Put("/users/{id}/plan", adminHandler.UpdateUserPlan)
 			r.Post("/users/{id}/reset-ai", adminHandler.ResetUserAIQuota)
+			r.Post("/users/{id}/verify", adminHandler.VerifyUserEmail)
 			r.Delete("/users/{id}", adminHandler.DeleteUser)
 			r.Get("/stats", adminHandler.GetSystemStats)
 		})

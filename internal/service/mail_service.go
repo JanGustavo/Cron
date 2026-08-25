@@ -500,3 +500,73 @@ func (s *MailService) SendDailyDigest(to, frontendURL string, items []FailedJobD
 	return nil
 }
 
+// SendDowngradeWarningEmail envia um e-mail de aviso 3 dias antes do encerramento da assinatura PRO.
+func (s *MailService) SendDowngradeWarningEmail(to, frontendURL string, daysRemaining, activeJobsCount, maxFreeLimit int) error {
+	subject := fmt.Sprintf("⚠️ Aviso CronFlow: Sua assinatura PRO expira em %d dias", daysRemaining)
+
+	body := fmt.Sprintf(`<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background-color: #04060f; color: #e2e8f0; margin: 0; padding: 40px 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #0b0f19; border: 1px solid #1e1b4b; border-radius: 20px; padding: 32px; shadow: 0 25px 50px -12px rgba(0,0,0,0.5); }
+        .header { text-align: center; border-b: 1px solid #1e1b4b; padding-bottom: 24px; margin-bottom: 24px; }
+        .logo { font-size: 24px; font-weight: 800; color: #f59e0b; letter-spacing: -0.5px; }
+        .badge { display: inline-block; padding: 6px 14px; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 9999px; color: #fbbf24; font-size: 12px; font-weight: 700; text-transform: uppercase; margin-top: 12px; }
+        .alert-box { background: rgba(245, 158, 11, 0.08); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 12px; padding: 16px; margin: 20px 0; font-size: 14px; line-height: 1.6; color: #fef08a; }
+        .footer { text-align: center; font-size: 12px; color: #64748b; margin-top: 32px; border-top: 1px solid #1e1b4b; padding-top: 24px; }
+        .btn { display: inline-block; padding: 12px 28px; background: #6366f1; color: #ffffff !important; text-decoration: none; font-weight: 700; border-radius: 12px; font-size: 14px; margin-top: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">⚡ CronFlow</div>
+            <div class="badge">Aviso de Renovação / Downgrade</div>
+        </div>
+        <h2 style="color: #f8fafc; font-size: 18px; margin-top: 0;">Sua assinatura PRO encerra em %d dias</h2>
+        <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+            Identificamos que sua assinatura do plano PRO está agendada para encerrar em <strong>%d dias</strong>.
+        </p>
+        <div class="alert-box">
+            📌 <strong>O que acontecerá com seus agendamentos?</strong><br>
+            Você possui atualmente <strong>%d tarefas ativas</strong>. Ao migrar para o plano Free (cota máxima de %d tarefas):
+            <ul>
+                <li>Seus <strong>%d agendamentos mais antigos</strong> permanecerão ativos.</li>
+                <li>As <strong>%d tarefas excedentes</strong> serão automaticamente pausadas sem perda de dados.</li>
+            </ul>
+        </div>
+        <p style="color: #94a3b8; font-size: 14px; line-height: 1.6;">
+            Para manter todos os seus %d agendamentos ativos sem interrupções, reative sua assinatura do plano PRO.
+        </p>
+        <div style="text-align: center;">
+            <a href="%s" class="btn">Renovar Plano PRO ✨</a>
+        </div>
+        <div class="footer">
+            CronFlow Engine — Sistema Inteligente de Automação e Monitoramento SaaS
+        </div>
+    </div>
+</body>
+</html>`, daysRemaining, daysRemaining, activeJobsCount, maxFreeLimit, maxFreeLimit, activeJobsCount-maxFreeLimit, activeJobsCount, frontendURL)
+
+	if s.resendKey != "" {
+		return s.sendViaResend(to, subject, body)
+	}
+
+	if s.host == "" {
+		log.Printf("MailService Mock (Downgrade Warning enviado para %s): %s", to, subject)
+		return nil
+	}
+
+	addr := fmt.Sprintf("%s:%d", s.host, s.port)
+	auth := smtp.PlainAuth("", s.user, s.pass, s.host)
+	msg := []byte(fmt.Sprintf("To: %s\r\n"+
+		"Subject: %s\r\n"+
+		"MIME-version: 1.0;\r\n"+
+		"Content-Type: text/html; charset=\"UTF-8\";\r\n\r\n"+
+		"%s\r\n", to, subject, body))
+
+	return smtp.SendMail(addr, auth, s.from, []string{to}, msg)
+}
+
