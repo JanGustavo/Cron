@@ -1086,32 +1086,32 @@ func translateOpenAIToGemini(openaiMsg OpenAIMessage) GeminiMessage {
 	}
 
 	var parts []GeminiPart
-	if openaiMsg.Content != "" {
-		parts = append(parts, GeminiPart{Text: openaiMsg.Content})
-	}
-
-	for _, tc := range openaiMsg.ToolCalls {
-		var args map[string]any
-		_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
-		parts = append(parts, GeminiPart{
-			FunctionCall: &GeminiFunctionCall{
-				ID:   tc.ID,
-				Name: tc.Function.Name,
-				Args: args,
-			},
-		})
-	}
-
-	if openaiMsg.ToolCallID != "" {
+	if openaiMsg.Role == "tool" || openaiMsg.ToolCallID != "" {
 		var resp map[string]any
 		_ = json.Unmarshal([]byte(openaiMsg.Content), &resp)
 		parts = append(parts, GeminiPart{
 			FunctionResponse: &GeminiFunctionResponse{
 				ID:       openaiMsg.ToolCallID,
-				Name:     openaiMsg.Content,
+				Name:     "",
 				Response: resp,
 			},
 		})
+	} else {
+		if openaiMsg.Content != "" {
+			parts = append(parts, GeminiPart{Text: openaiMsg.Content})
+		}
+
+		for _, tc := range openaiMsg.ToolCalls {
+			var args map[string]any
+			_ = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			parts = append(parts, GeminiPart{
+				FunctionCall: &GeminiFunctionCall{
+					ID:   tc.ID,
+					Name: tc.Function.Name,
+					Args: args,
+				},
+			})
+		}
 	}
 
 	return GeminiMessage{
