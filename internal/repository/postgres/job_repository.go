@@ -274,7 +274,7 @@ func (r *JobRepository) UpdateStatus(ctx context.Context, id string, status job.
 func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE jobs SET
-			consecutive_failures = consecutive_failures + 1,
+			consecutive_failures = LEAST(3, consecutive_failures + 1),
 			last_run_status = 'failed',
 			status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'failing' ELSE status END,
 			last_run_at = NOW(),
