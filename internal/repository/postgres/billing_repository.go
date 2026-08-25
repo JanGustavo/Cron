@@ -37,9 +37,25 @@ func (r *BillingRepository) GetSubscription(ctx context.Context, userID string) 
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
+			var userPlan string
+			_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(plan, 'free') FROM users WHERE id = $1`, userID).Scan(&userPlan)
+			if userPlan == "pro" {
+				return &billing.Subscription{
+					UserID:   userID,
+					PlanCode: "pro",
+					Status:   "active",
+				}, nil
+			}
 			return nil, nil // No subscription is fine, free plan applies
 		}
 		return nil, err
+	}
+
+	var userPlan string
+	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(plan, 'free') FROM users WHERE id = $1`, userID).Scan(&userPlan)
+	if userPlan == "pro" {
+		sub.PlanCode = "pro"
+		sub.Status = "active"
 	}
 
 	if custID.Valid {

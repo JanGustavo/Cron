@@ -408,9 +408,11 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	u, _ := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
+	isProUser := u != nil && string(u.Plan) == "pro"
+
 	var freeAiUsed int
-	if !limits.WorkflowsEnabled {
-		u, _ := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
+	if !isProUser && !limits.WorkflowsEnabled {
 		if u != nil {
 			freeAiUsed = u.AiQueriesUsed
 		} else if h.redis != nil {
