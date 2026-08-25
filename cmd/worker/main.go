@@ -48,13 +48,13 @@ func main() {
 				"default":  3, // plano free
 				"low":      1,
 			},
-			// Backoff exponencial: tentativa 1=1min, 2=5min, 3=15min
+			// Backoff exponencial para retentativas de falhas (5s -> 15s -> 30s)
 			RetryDelayFunc: func(n int, err error, task *asynq.Task) time.Duration {
-				delays := []time.Duration{1 * time.Minute, 5 * time.Minute, 15 * time.Minute}
+				delays := []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second}
 				if n > 0 && n-1 < len(delays) {
 					return delays[n-1]
 				}
-				return 15 * time.Minute
+				return 30 * time.Second
 			},
 		},
 	)

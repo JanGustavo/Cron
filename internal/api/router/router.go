@@ -43,6 +43,8 @@ func New(
 	r.Get("/v1/health", healthHandler.Check)
 	r.Head("/v1/health", healthHandler.Check)
 	r.Get("/v1/health/ai", healthHandler.CheckAI)
+	r.Get("/v1/metrics/system", metricsHandler.SystemMetrics)
+	r.Get("/v1/metrics/queue", metricsHandler.QueueMetrics)
 	r.Get("/swagger/*", httpSwagger.WrapHandler)
 	r.Post("/v1/auth/signup", authHandler.Signup)
 	r.Post("/v1/auth/verify-email", authHandler.VerifyEmail)
