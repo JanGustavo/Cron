@@ -905,8 +905,8 @@ func (h *AgentHandler) runGroqChat(ctx context.Context, projectID string, histor
 	openaiTools := getOpenAITools()
 	openaiHistory := translateGeminiToOpenAI(history)
 
-	modelsToTry := []string{"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b"}
-	selectedModel := "llama-3.3-70b-versatile"
+	modelsToTry := []string{"openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"}
+	selectedModel := "openai/gpt-oss-20b"
 
 	for loop := 0; loop < 5; loop++ {
 		messages := []OpenAIMessage{
