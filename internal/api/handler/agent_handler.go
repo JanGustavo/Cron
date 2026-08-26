@@ -274,7 +274,7 @@ var geminiTools = []GeminiTool{
 						},
 						"confirmationToken": {
 							Type:        "STRING",
-							Description: "O código de confirmação no formato 'CF-XXXXXX' fornecido pelo usuário. Deixe em branco no primeiro envio.",
+							Description: "O código de confirmação no formato 'CF-XXXXXX'. Quando o usuário disser 'confirmo', 'sim' ou fornecer o código, passe o código para efetivar a ação.",
 						},
 					},
 					Required: []string{"name", "schedule", "url", "httpMethod"},
@@ -292,7 +292,7 @@ var geminiTools = []GeminiTool{
 						},
 						"confirmationToken": {
 							Type:        "STRING",
-							Description: "O código de confirmação no formato 'CF-XXXXXX' fornecido pelo usuário. Deixe em branco no primeiro envio.",
+							Description: "O código de confirmação no formato 'CF-XXXXXX'. Quando o usuário disser 'confirmo', 'sim' ou fornecer o código, passe o código para efetivar a ação.",
 						},
 					},
 					Required: []string{"jobId"},
@@ -354,12 +354,14 @@ Não proponha every:0m, schedule vazio, schedule nulo ou qualquer valor mágico 
 Use apenas expressões cron ou intervalos simplificados aceitos pela ferramenta e solicite timezone quando ele for relevante.
 Quando a dependência entre jobs não estiver disponível como recurso explícito, explique que a API Python pode acionar o próximo job por uma rota oficialmente documentada. Não invente a rota: use somente a rota de trigger real do CronFlow ("POST /v1/jobs/{id}/trigger").
 
-CRIAÇÃO E DISPARO
-Antes de chamar createJob ou triggerJob, confirme com o usuário a ação e mostre um resumo dos parâmetros que serão usados.
-Não crie job apenas porque o usuário pediu uma sugestão.
-Não dispare job apenas porque o usuário perguntou como ele funciona.
-Se faltarem URL, nome, schedule ou qualquer campo obrigatório, faça uma pergunta objetiva e não chame a ferramenta.
-Nunca peça para o usuário enviar segredo em texto se houver alternativa de configuração segura; recomende secret manager, variável protegida ou credencial mascarada.
+CRIAÇÃO E DISPARO DE JOBS (FLUXO DE EXECUÇÃO):
+1. Proposta Inicial: Quando o usuário pedir para criar ou disparar um job, você pode primeiro chamar a ferramenta correspondente ('createJob' ou 'triggerJob') SEM o confirmationToken para obter o código de confirmação oficial (formato 'CF-XXXXXX'), e apresentar o resumo dos parâmetros ao usuário pedindo que ele confirme.
+2. Execução Imediata na Confirmação: Se o usuário enviar o código de confirmação (ex: 'CF-KZHGJF'), ou disser palavras de confirmação como 'confirmo', 'sim', 'pode criar', 'ok', 'prosseguir':
+   - Você DEVE OBRIGATORIAMENTE chamar a ferramenta ('createJob' ou 'triggerJob') IMEDIATAMENTE nesta resposta.
+   - Passe todos os parâmetros acordados (name, schedule, url, httpMethod, etc.) E o parâmetro 'confirmationToken' preenchido com o código de confirmação 'CF-XXXXXX' (se o usuário disse apenas 'confirmo', resgate o código do histórico).
+   - NUNCA repita o pedido de confirmação quando o usuário já confirmou ou enviou o código; execute a chamada da ferramenta!
+3. Se faltarem URL, nome, schedule ou qualquer campo obrigatório, faça uma pergunta objetiva antes de propor a ferramenta.
+4. Nunca peça para o usuário enviar segredo em texto se houver alternativa de configuração segura; recomende secret manager, variável protegida ou credencial mascarada.
 
 HTTP E SSRF
 Nunca faça requisições para localhost, loopback, rede privada RFC1918, link-local, multicast, metadata endpoints, IPs reservados ou hosts que resolvam para essas faixas.
@@ -371,11 +373,6 @@ LOGS, CONTA E BILLING
 Não afirme que consultou logs, plano, limite, billing ou perfil sem resultado explícito de ferramenta que forneça esses dados.
 Se não houver ferramenta para isso, responda: "Não consigo consultar esses dados reais nesta conversa. Verifique o Perfil, Histórico ou Cobrança no painel do CronFlow."
 Não invente menus adicionais.
-
-QUALIDADE E MACHINE LEARNING
-Para pipelines Python, atribua ao Python a coleta, transformação, validação, treinamento, inferência, persistência e métricas.
-Atribua ao CronFlow o agendamento, disparo HTTP, retries, logs de execução, alertas e encadeamento somente quando houver mecanismo real e documentado.
-HTTP 200 indica sucesso técnico da requisição, não validade semântica do dataset. Oriente a API Python a retornar um status de falha definido pelo contrato quando a validação não passar.
 
 ERROS
 Se uma ferramenta ou provedor falhar, não exponha nomes de provedores, chaves, stack traces ou detalhes internos.
@@ -916,12 +913,12 @@ func (h *AgentHandler) runGroqChat(ctx context.Context, projectID string, histor
 		messages = append(messages, openaiHistory...)
 
 		groqReq := OpenAIRequest{
-			Model:       "openai/gpt-oss-20b",
+			Model:       "openai/gpt-oss-120b",
 			Messages:    messages,
 			Tools:       openaiTools,
 			Temperature: 0.1,
 			TopP:        0.8,
-			MaxTokens:   900,
+			MaxTokens:   1200,
 		}
 
 		reqBytes, err := json.Marshal(groqReq)
