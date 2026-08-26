@@ -905,6 +905,9 @@ func (h *AgentHandler) runGroqChat(ctx context.Context, projectID string, histor
 	openaiTools := getOpenAITools()
 	openaiHistory := translateGeminiToOpenAI(history)
 
+	modelsToTry := []string{"llama-3.3-70b-versatile", "llama-3.1-8b-instant", "openai/gpt-oss-120b"}
+	selectedModel := "llama-3.3-70b-versatile"
+
 	for loop := 0; loop < 5; loop++ {
 		messages := []OpenAIMessage{
 			{
@@ -914,48 +917,63 @@ func (h *AgentHandler) runGroqChat(ctx context.Context, projectID string, histor
 		}
 		messages = append(messages, openaiHistory...)
 
-		groqReq := OpenAIRequest{
-			Model:       "openai/gpt-oss-120b",
-			Messages:    messages,
-			Tools:       openaiTools,
-			Temperature: 0.1,
-			TopP:        0.8,
-			MaxTokens:   1200,
-		}
-
-		reqBytes, err := json.Marshal(groqReq)
-		if err != nil {
-			return "", nil, err
-		}
-
-		req, err := http.NewRequestWithContext(ctx, "POST", groqUrl, bytes.NewReader(reqBytes))
-		if err != nil {
-			return "", nil, err
-		}
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+h.cfg.GroqAPIKey)
-
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			return "", nil, err
-		}
-		defer resp.Body.Close()
-
-		if resp.StatusCode != http.StatusOK {
-			var errBody map[string]any
-			_ = json.NewDecoder(resp.Body).Decode(&errBody)
-			return "", nil, fmt.Errorf("Groq HTTP %d: %v", resp.StatusCode, errBody)
-		}
-
 		var groqResp OpenAIResponse
-		if err := json.NewDecoder(resp.Body).Decode(&groqResp); err != nil {
-			return "", nil, err
+		var lastErr error
+
+		// Try models in fallback order if rate limited
+		for _, modelName := range modelsToTry {
+			groqReq := OpenAIRequest{
+				Model:       modelName,
+				Messages:    messages,
+				Tools:       openaiTools,
+				Temperature: 0.1,
+				TopP:        0.8,
+				MaxTokens:   1200,
+			}
+
+			reqBytes, err := json.Marshal(groqReq)
+			if err != nil {
+				return "", nil, err
+			}
+
+			req, err := http.NewRequestWithContext(ctx, "POST", groqUrl, bytes.NewReader(reqBytes))
+			if err != nil {
+				return "", nil, err
+			}
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("Authorization", "Bearer "+h.cfg.GroqAPIKey)
+
+			resp, err := httpClient.Do(req)
+			if err != nil {
+				lastErr = err
+				continue
+			}
+
+			if resp.StatusCode == http.StatusOK {
+				selectedModel = modelName
+				err := json.NewDecoder(resp.Body).Decode(&groqResp)
+				resp.Body.Close()
+				if err == nil && len(groqResp.Choices) > 0 {
+					lastErr = nil
+					break
+				}
+			} else {
+				var errBody map[string]any
+				_ = json.NewDecoder(resp.Body).Decode(&errBody)
+				resp.Body.Close()
+				log.Printf("Groq model %s returned status %d: %v. Trying next model...", modelName, resp.StatusCode, errBody)
+				lastErr = fmt.Errorf("Groq HTTP %d: %v", resp.StatusCode, errBody)
+			}
 		}
 
-		if len(groqResp.Choices) == 0 {
-			return "", nil, fmt.Errorf("sem choices do Groq")
+		if lastErr != nil || len(groqResp.Choices) == 0 {
+			if lastErr == nil {
+				lastErr = fmt.Errorf("sem choices do Groq")
+			}
+			return "", nil, lastErr
 		}
 
+		_ = selectedModel
 		choice := groqResp.Choices[0]
 		assistantMsg := choice.Message
 
