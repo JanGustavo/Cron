@@ -690,7 +690,26 @@ func (h *AgentHandler) executeTool(ctx context.Context, projectID string, name s
 		if err != nil {
 			return nil, err
 		}
-		return jobs, nil
+		type JobSummary struct {
+			ID       string `json:"id"`
+			Name     string `json:"name"`
+			Schedule string `json:"schedule"`
+			URL      string `json:"url"`
+			Method   string `json:"httpMethod"`
+			Status   string `json:"status"`
+		}
+		var summaries []JobSummary
+		for _, j := range jobs {
+			summaries = append(summaries, JobSummary{
+				ID:       j.ID,
+				Name:     j.Name,
+				Schedule: j.Schedule,
+				URL:      j.URL,
+				Method:   string(j.HTTPMethod),
+				Status:   string(j.Status),
+			})
+		}
+		return summaries, nil
 
 	case "createJob":
 		nameVal, _ := args["name"].(string)
@@ -904,6 +923,9 @@ func (h *AgentHandler) runGroqChat(ctx context.Context, projectID string, histor
 
 	openaiTools := getOpenAITools()
 	openaiHistory := translateGeminiToOpenAI(history)
+	if len(openaiHistory) > 6 {
+		openaiHistory = openaiHistory[len(openaiHistory)-6:]
+	}
 
 	modelsToTry := []string{"openai/gpt-oss-20b", "openai/gpt-oss-120b", "qwen/qwen3.8-27b"}
 	selectedModel := "openai/gpt-oss-20b"
