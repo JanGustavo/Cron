@@ -210,7 +210,7 @@ func (r *JobRepository) FindEligibleToRun(ctx context.Context, now time.Time) ([
 	query := `
 		SELECT id, project_id, url, http_method, headers, payload, schedule, timezone, next_run_at
 		FROM jobs
-		WHERE status = 'active' AND next_run_at <= $1
+		WHERE status = 'active' AND consecutive_failures = 0 AND next_run_at <= $1
 		ORDER BY next_run_at ASC
 		LIMIT 500`
 
