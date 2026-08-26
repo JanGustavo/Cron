@@ -270,12 +270,12 @@ func (r *JobRepository) UpdateStatus(ctx context.Context, id string, status job.
 	return err
 }
 
-// IncrementFailures incrementa o contador e suspende o job ('failing') se >= 3.
+// IncrementFailures incrementa o contador e suspende o job ('failing') se >= 4.
 func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx, `
 		UPDATE jobs SET
-			consecutive_failures = LEAST(3, consecutive_failures + 1),
-			status = CASE WHEN consecutive_failures + 1 >= 3 THEN 'failing' ELSE status END,
+			consecutive_failures = LEAST(4, consecutive_failures + 1),
+			status = CASE WHEN consecutive_failures + 1 >= 4 THEN 'failing' ELSE status END,
 			last_run_at = NOW(),
 			updated_at = NOW()
 		WHERE id = $1`, id,
