@@ -1215,6 +1215,7 @@ type ProfileResponse struct {
 	Limits             PlanLimitsResponse `json:"limits"`
 	AiQueriesUsed      int                `json:"aiQueriesUsed"`
 	CurrentPeriodEnd   *string            `json:"currentPeriodEnd,omitempty"`
+	ClientIP           string             `json:"clientIp"`
 }
 
 // GetProfile — GET /v1/users/profile
@@ -1310,6 +1311,7 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		},
 		AiQueriesUsed:    u.AiQueriesUsed,
 		CurrentPeriodEnd: expiryStr,
+		ClientIP:         getClientIP(r),
 	}
 
 	writeJSON(w, http.StatusOK, resp)
