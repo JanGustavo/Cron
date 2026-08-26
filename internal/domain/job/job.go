@@ -56,15 +56,15 @@ func (j *Job) IsElegibleToRun(now time.Time) bool {
 	return j.Status == StatusActive && !j.NextRunAt.After(now)
 }
 
-// verifica se o job deve disparar o webhook de alerta após 3 falhas consecutivas
+// verifica se o job deve disparar o webhook de alerta após 4 falhas consecutivas (inicial + 3 retentativas)
 func (j *Job) ShouldAlert() bool {
-	return j.ConsecutiveFailures >= 3 && j.WebhookAlertURL != nil
+	return j.ConsecutiveFailures >= 4 && j.WebhookAlertURL != nil
 }
 
-// aumenta o contador de falhas consecutivas e, se atingir 3, marca o job como "failing"
+// aumenta o contador de falhas consecutivas e, se atingir 4, marca o job como "failing"
 func (j *Job) markAsFailed() {
 	j.ConsecutiveFailures++
-	if j.ConsecutiveFailures >= 3 {
+	if j.ConsecutiveFailures >= 4 {
 		j.Status = StatusFailing
 	}
 }

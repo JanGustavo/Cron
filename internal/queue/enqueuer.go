@@ -40,7 +40,7 @@ func (e *Enqueuer) Enqueue(ctx context.Context, jobID string) error {
 
 	_, err = e.client.EnqueueContext(ctx, task,
 		asynq.Queue("default"),
-		asynq.MaxRetry(2),
+		asynq.MaxRetry(3),
 	)
 	if err != nil {
 		return fmt.Errorf("Enqueuer.Enqueue: erro ao enfileirar job %s: %w", jobID, err)

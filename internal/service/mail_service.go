@@ -384,7 +384,7 @@ func (s *MailService) SendDailyDigest(to, frontendURL string, items []FailedJobD
 
 		statusBadgeColor := "#f87171"
 		statusBadgeText := "FAILED"
-		if item.ConsecutiveFailures >= 3 {
+		if item.ConsecutiveFailures >= 4 {
 			statusBadgeText = "SUSPENSO (Pausa Forçada)"
 			statusBadgeColor = "#ef4444"
 		}
