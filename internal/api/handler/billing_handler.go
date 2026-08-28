@@ -81,6 +81,7 @@ func (h *BillingHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Re
 			"billingType":       "UNDEFINED",
 			"chargeType":        "RECURRENT",
 			"subscriptionCycle": cycle,
+			"dueDateLimitDays":  5,
 			"externalReference": proj.UserID,
 			"callback": map[string]interface{}{
 				"successUrl":   successURL,
