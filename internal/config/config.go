@@ -43,6 +43,9 @@ type Config struct {
 	StripePriceIDProMonthly string
 	StripePriceIDProYearly  string
 	DisableGemini          bool
+	BillingProvider        string
+	AsaasAPIKey            string
+	AsaasWebhookToken      string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
@@ -80,6 +83,9 @@ func Load() *Config {
 		StripePriceIDProMonthly: getEnv("STRIPE_PRICE_ID_PRO_MONTHLY", ""),
 		StripePriceIDProYearly:  getEnv("STRIPE_PRICE_ID_PRO_YEARLY", ""),
 		DisableGemini:          getEnvAsBool("DISABLE_GEMINI", false),
+		BillingProvider:        getEnv("BILLING_PROVIDER", "stripe"),
+		AsaasAPIKey:            getEnv("ASAAS_API_KEY", ""),
+		AsaasWebhookToken:      getEnv("ASAAS_WEBHOOK_TOKEN", ""),
 	}
 
 	// -------------------------------------------------------------
