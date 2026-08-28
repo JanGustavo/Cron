@@ -451,7 +451,9 @@ func (h *BillingHandler) processSubscriptionUpdate(ctx context.Context, userID s
 
 func (h *BillingHandler) callAsaas(method, path string, body interface{}) ([]byte, int, error) {
 	var asaasBaseURL string
-	if h.cfg.AppEnv == "production" {
+	if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_hmlg_") {
+		asaasBaseURL = "https://sandbox.asaas.com/api/v3"
+	} else if h.cfg.AppEnv == "production" {
 		asaasBaseURL = "https://api.asaas.com/v3"
 	} else {
 		asaasBaseURL = "https://sandbox.asaas.com/api/v3"
