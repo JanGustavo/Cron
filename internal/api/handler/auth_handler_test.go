@@ -1,6 +1,10 @@
 package handler
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/JanGustavo/Cron/internal/auth"
+)
 
 func TestIsValidCPF(t *testing.T) {
 	if !isValidCPF("11144477735") {
@@ -33,5 +37,26 @@ func TestIsValidTaxDocument(t *testing.T) {
 
 	if isValidTaxDocument("123", "cpf") {
 		t.Fatal("expected invalid short document")
+	}
+}
+
+func TestPasswordHashingAndVerification(t *testing.T) {
+	plainPassword := "SegredoForte@2026"
+
+	hash, err := auth.HashPassword(plainPassword)
+	if err != nil {
+		t.Fatalf("unexpected error hashing password: %v", err)
+	}
+
+	if hash == "" || hash == plainPassword {
+		t.Fatal("expected non-empty encrypted hash different from plain password")
+	}
+
+	if !auth.CheckPasswordHash(plainPassword, hash) {
+		t.Fatal("expected CheckPasswordHash to return true for correct password")
+	}
+
+	if auth.CheckPasswordHash("SenhaIncorreta123", hash) {
+		t.Fatal("expected CheckPasswordHash to return false for incorrect password")
 	}
 }

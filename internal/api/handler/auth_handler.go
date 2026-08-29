@@ -1184,6 +1184,8 @@ func (h *AuthHandler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request
 }
 
 type UpdateProfileRequest struct {
+	FullName           string `json:"full_name"`
+	CPF                string `json:"cpf"`
 	EmailAlertsEnabled bool   `json:"email_alerts_enabled"`
 	DailyDigestEnabled bool   `json:"daily_digest_enabled"`
 	Timezone           string `json:"timezone"`
@@ -1318,17 +1320,7 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 // UpdateProfile — PUT /v1/users/profile
-// @Summary Atualizar preferências do usuário
-// @Description Atualiza as configurações de notificação de e-mail e daily digest do usuário.
-// @Tags Usuário
-// @Accept json
-// @Produce json
-// @Param body body UpdateProfileRequest true "Preferências a serem atualizadas"
-// @Success 200 {object} map[string]string "Preferências salvas com sucesso"
-// @Failure 401 {object} map[string]string "Não autorizado"
-// @Failure 500 {object} map[string]string "Erro interno"
-// @Security ApiKeyAuth
-// @Router /v1/users/profile [put]
+// @Summary Atualizar preferências e dados pessoais do usuário
 func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 	proj := middleware.ProjectFromContext(r.Context())
 	if proj == nil {
@@ -1370,14 +1362,118 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err = h.userRepo.UpdateEmailPreferences(r.Context(), u.ID, req.EmailAlertsEnabled, req.DailyDigestEnabled, req.Timezone, req.DigestHour)
+	targetName := req.FullName
+	if targetName == "" {
+		targetName = u.FullName
+	}
+	targetCPF := req.CPF
+	if targetCPF == "" {
+		targetCPF = u.CPF
+	}
+
+	err = h.userRepo.UpdateUserProfile(r.Context(), u.ID, targetName, targetCPF, req.Timezone, req.EmailAlertsEnabled, req.DailyDigestEnabled, req.DigestHour)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao atualizar preferências")
+		writeError(w, http.StatusInternalServerError, "Erro ao atualizar dados do perfil")
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
-		"message": "preferências atualizadas com sucesso",
+		"message": "perfil atualizado com sucesso",
+	})
+}
+
+type ChangePasswordRequest struct {
+	CurrentPassword string `json:"current_password"`
+	NewPassword     string `json:"new_password"`
+}
+
+// ChangePassword — POST /v1/users/change-password
+func (h *AuthHandler) ChangePassword(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		return
+	}
+
+	var req ChangePasswordRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "Corpo da requisição inválido")
+		return
+	}
+
+	if len(req.NewPassword) < 8 {
+		writeError(w, http.StatusBadRequest, "A nova senha deve ter no mínimo 8 caracteres")
+		return
+	}
+
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
+		return
+	}
+
+	// Se o usuário possui senha prévia cadastrada, valida a senha atual
+	if u.PasswordHash != "" {
+		if !auth.CheckPasswordHash(req.CurrentPassword, u.PasswordHash) {
+			writeError(w, http.StatusUnauthorized, "A senha atual informada está incorreta")
+			return
+		}
+	}
+
+	newHash, err := auth.HashPassword(req.NewPassword)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao criptografar nova senha")
+		return
+	}
+
+	if err := h.userRepo.UpdatePassword(r.Context(), u.ID, newHash); err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao salvar nova senha")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "Senha alterada com sucesso!",
+	})
+}
+
+type DeleteAccountRequest struct {
+	Password string `json:"password"`
+}
+
+// DeleteAccount — DELETE /v1/users/account (Direito de Exclusão / LGPD)
+func (h *AuthHandler) DeleteAccount(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "Não autorizado")
+		return
+	}
+
+	var req DeleteAccountRequest
+	_ = json.NewDecoder(r.Body).Decode(&req)
+
+	u, err := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
+	if err != nil || u == nil {
+		writeError(w, http.StatusNotFound, "Usuário não encontrado")
+		return
+	}
+
+	// Se o usuário possui senha cadastrada, exige confirmação por senha
+	if u.PasswordHash != "" {
+		if req.Password == "" || !auth.CheckPasswordHash(req.Password, u.PasswordHash) {
+			writeError(w, http.StatusUnauthorized, "Senha incorreta para confirmação de exclusão")
+			return
+		}
+	}
+
+	if err := h.userRepo.DeleteUserByAdmin(r.Context(), u.ID); err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao excluir conta")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status":  "success",
+		"message": "Conta e todos os dados associados foram excluídos com sucesso.",
 	})
 }
 

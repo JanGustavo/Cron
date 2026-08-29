@@ -8,32 +8,45 @@ import (
 	"time"
 
 	"github.com/JanGustavo/Cron/internal/api/middleware"
+	"github.com/JanGustavo/Cron/internal/config"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/redis/go-redis/v9"
 )
 
 type AdminHandler struct {
-	userRepo *postgres.UserRepository
-	redis    *redis.Client
+	userRepo    *postgres.UserRepository
+	billingRepo *postgres.BillingRepository
+	redis       *redis.Client
+	cfg         *config.Config
 }
 
-func NewAdminHandler(userRepo *postgres.UserRepository, redisClient *redis.Client) *AdminHandler {
+func NewAdminHandler(userRepo *postgres.UserRepository, billingRepo *postgres.BillingRepository, redisClient *redis.Client, cfg *config.Config) *AdminHandler {
 	return &AdminHandler{
-		userRepo: userRepo,
-		redis:    redisClient,
+		userRepo:    userRepo,
+		billingRepo: billingRepo,
+		redis:       redisClient,
+		cfg:         cfg,
 	}
 }
 
 type AdminUserDTO struct {
-	ID                 string    `json:"id"`
-	Email              string    `json:"email"`
-	FullName           string    `json:"fullName"`
-	Plan               string    `json:"plan"`
-	Role               string    `json:"role"`
-	IsVerified         bool      `json:"isVerified"`
-	TotalJobs          int       `json:"totalJobs"`
-	AiQueriesUsed      int       `json:"aiQueriesUsed"`
-	CreatedAt          time.Time `json:"createdAt"`
+	ID                     string     `json:"id"`
+	Email                  string     `json:"email"`
+	FullName               string     `json:"fullName"`
+	Plan                   string     `json:"plan"`
+	Role                   string     `json:"role"`
+	IsVerified             bool       `json:"isVerified"`
+	TotalJobs              int        `json:"totalJobs"`
+	AiQueriesUsed          int        `json:"aiQueriesUsed"`
+	BillingCycle           string     `json:"billingCycle"`       // "monthly" | "yearly" | "none"
+	CurrentPeriodEnd       *time.Time `json:"currentPeriodEnd"`   // Data limite do plano
+	CurrentPeriodStart     *time.Time `json:"currentPeriodStart"` // Data de início
+	SubscriptionStatus     string     `json:"subscriptionStatus"` // "active" | "canceled" | "none"
+	BillingProvider        string     `json:"billingProvider"`    // "asaas" | "manual" | "none"
+	ProviderCustomerID     *string    `json:"providerCustomerId,omitempty"`
+	ProviderSubscriptionID *string    `json:"providerSubscriptionId,omitempty"`
+	AsaasURL               string     `json:"asaasUrl,omitempty"`
+	CreatedAt              time.Time  `json:"createdAt"`
 }
 
 // ListUsers — GET /v1/admin/users
@@ -42,6 +55,15 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, fmt.Sprintf("Erro ao listar usuários: %v", err))
 		return
+	}
+
+	var asaasBaseURL = "https://sandbox.asaas.com"
+	if h.cfg != nil {
+		if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_hmlg_") {
+			asaasBaseURL = "https://sandbox.asaas.com"
+		} else if h.cfg.AppEnv == "production" {
+			asaasBaseURL = "https://www.asaas.com"
+		}
 	}
 
 	var dtos []AdminUserDTO
@@ -57,16 +79,69 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
+		var billingCycle = "none"
+		var currentPeriodEnd *time.Time
+		var currentPeriodStart *time.Time
+		var subStatus = "none"
+		var billingProvider = "none"
+		var providerCustID *string
+		var providerSubID *string
+		var asaasURL = ""
+
+		if h.billingRepo != nil {
+			sub, _ := h.billingRepo.GetSubscription(r.Context(), u.ID)
+			if sub != nil {
+				subStatus = sub.Status
+				billingProvider = sub.BillingProvider
+				if billingProvider == "" && u.Plan == "pro" {
+					billingProvider = "manual"
+				}
+				currentPeriodEnd = sub.CurrentPeriodEnd
+				currentPeriodStart = sub.CurrentPeriodStart
+				providerCustID = sub.ProviderCustomerID
+				providerSubID = sub.ProviderSubscriptionID
+
+				if sub.ProviderSubscriptionID != nil && *sub.ProviderSubscriptionID != "" {
+					asaasURL = fmt.Sprintf("%s/subscriptions", asaasBaseURL)
+				} else if sub.ProviderCustomerID != nil && *sub.ProviderCustomerID != "" {
+					asaasURL = fmt.Sprintf("%s/subscriptions", asaasBaseURL)
+				}
+
+				if sub.CurrentPeriodStart != nil && sub.CurrentPeriodEnd != nil {
+					days := sub.CurrentPeriodEnd.Sub(*sub.CurrentPeriodStart).Hours() / 24
+					if days > 60 {
+						billingCycle = "yearly"
+					} else {
+						billingCycle = "monthly"
+					}
+				} else if u.Plan == "pro" {
+					billingCycle = "monthly"
+				}
+			} else if u.Plan == "pro" {
+				subStatus = "active"
+				billingCycle = "monthly"
+				billingProvider = "manual"
+			}
+		}
+
 		dtos = append(dtos, AdminUserDTO{
-			ID:                 u.ID,
-			Email:              u.Email,
-			FullName:           u.FullName,
-			Plan:               string(u.Plan),
-			Role:               u.Role,
-			IsVerified:         u.IsVerified,
-			TotalJobs:          jobCount,
-			AiQueriesUsed:      aiUsed,
-			CreatedAt:          u.CreatedAt,
+			ID:                     u.ID,
+			Email:                  u.Email,
+			FullName:               u.FullName,
+			Plan:                   string(u.Plan),
+			Role:                   u.Role,
+			IsVerified:             u.IsVerified,
+			TotalJobs:              jobCount,
+			AiQueriesUsed:          aiUsed,
+			BillingCycle:           billingCycle,
+			CurrentPeriodEnd:       currentPeriodEnd,
+			CurrentPeriodStart:     currentPeriodStart,
+			SubscriptionStatus:     subStatus,
+			BillingProvider:        billingProvider,
+			ProviderCustomerID:     providerCustID,
+			ProviderSubscriptionID: providerSubID,
+			AsaasURL:               asaasURL,
+			CreatedAt:              u.CreatedAt,
 		})
 	}
 

@@ -182,7 +182,7 @@ func main() {
 			rClient = redis.NewClient(opt)
 		}
 	}
-	adminHandler := handler.NewAdminHandler(userRepo, rClient)
+	adminHandler := handler.NewAdminHandler(userRepo, billingRepo, rClient, cfg)
 
 	// Router
 	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, billingHandler, adminHandler, entitlementEngine, cfg.JWTSecret)

@@ -93,6 +93,8 @@ func New(
 		r.Post("/v1/projects/webhook-secret/rotate", authHandler.RotateWebhookSecret)
 		r.Get("/v1/users/profile", authHandler.GetProfile)
 		r.Put("/v1/users/profile", authHandler.UpdateProfile)
+		r.Post("/v1/users/change-password", authHandler.ChangePassword)
+		r.Delete("/v1/users/account", authHandler.DeleteAccount)
 		r.Post("/v1/projects", authHandler.CreateProject)
 		r.Put("/v1/projects/{id}", authHandler.UpdateProject)
 		r.Delete("/v1/projects/{id}", authHandler.DeleteProject)

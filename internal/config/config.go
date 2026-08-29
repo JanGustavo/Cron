@@ -37,11 +37,6 @@ type Config struct {
 	SmtpFrom           string
 	SchedulerInterval  string
 	WorkerConcurrency  int
-	StripePublishableKey string
-	StripeSecretKey      string
-	StripeWebhookSecret  string
-	StripePriceIDProMonthly string
-	StripePriceIDProYearly  string
 	DisableGemini          bool
 	BillingProvider        string
 	AsaasAPIKey            string
@@ -77,13 +72,8 @@ func Load() *Config {
 		SmtpFrom:           getEnv("SMTP_FROM", "no-reply@cronflow.me"),
 		SchedulerInterval:  getEnv("SCHEDULER_INTERVAL", "30s"),
 		WorkerConcurrency:  getEnvAsInt("WORKER_CONCURRENCY", 50),
-		StripePublishableKey: getEnv("STRIPE_PUBLISHABLE_KEY", ""),
-		StripeSecretKey:      getEnv("STRIPE_SECRET_KEY", ""),
-		StripeWebhookSecret:  getEnv("STRIPE_WEBHOOK_SECRET", ""),
-		StripePriceIDProMonthly: getEnv("STRIPE_PRICE_ID_PRO_MONTHLY", ""),
-		StripePriceIDProYearly:  getEnv("STRIPE_PRICE_ID_PRO_YEARLY", ""),
 		DisableGemini:          getEnvAsBool("DISABLE_GEMINI", false),
-		BillingProvider:        getEnv("BILLING_PROVIDER", "stripe"),
+		BillingProvider:        getEnv("BILLING_PROVIDER", "asaas"),
 		AsaasAPIKey:            getEnv("ASAAS_API_KEY", ""),
 		AsaasWebhookToken:      getEnv("ASAAS_WEBHOOK_TOKEN", ""),
 	}

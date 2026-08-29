@@ -259,6 +259,20 @@ func (r *UserRepository) UpdatePassword(ctx context.Context, userID, newPassword
 	return nil
 }
 
+// UpdateUserProfile atualiza dados cadastrais e preferências do usuário.
+func (r *UserRepository) UpdateUserProfile(ctx context.Context, userID, fullName, cpf, timezone string, emailAlerts, dailyDigest bool, digestHour int) error {
+	_, err := r.db.ExecContext(ctx,
+		`UPDATE users 
+		 SET full_name = $1, cpf = $2, timezone = $3, email_alerts_enabled = $4, daily_digest_enabled = $5, digest_hour = $6 
+		 WHERE id = $7`,
+		fullName, cpf, timezone, emailAlerts, dailyDigest, digestHour, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("UserRepository.UpdateUserProfile: %w", err)
+	}
+	return nil
+}
+
 // UpdateEmailPreferences altera as preferências de notificação do usuário.
 func (r *UserRepository) UpdateEmailPreferences(ctx context.Context, userID string, emailAlerts, dailyDigest bool, timezone string, digestHour int) error {
 	_, err := r.db.ExecContext(ctx,
