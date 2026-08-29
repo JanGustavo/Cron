@@ -224,7 +224,7 @@ func (h *BillingHandler) callAsaas(method, path string, body interface{}) ([]byt
 	var asaasBaseURL string
 	if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_hmlg_") {
 		asaasBaseURL = "https://sandbox.asaas.com/api/v3"
-	} else if h.cfg.AppEnv == "production" {
+	} else if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_prod_") || h.cfg.AppEnv == "production" {
 		asaasBaseURL = "https://api.asaas.com/v3"
 	} else {
 		asaasBaseURL = "https://sandbox.asaas.com/api/v3"

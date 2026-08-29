@@ -61,7 +61,7 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 	if h.cfg != nil {
 		if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_hmlg_") {
 			asaasBaseURL = "https://sandbox.asaas.com"
-		} else if h.cfg.AppEnv == "production" {
+		} else if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_prod_") || h.cfg.AppEnv == "production" {
 			asaasBaseURL = "https://www.asaas.com"
 		}
 	}
