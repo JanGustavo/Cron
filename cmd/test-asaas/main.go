@@ -176,14 +176,14 @@ func main() {
 		fmt.Printf("   📄 Link Público da Fatura: %s\n", pay.InvoiceURL)
 
 		// 3.4 Simula pagamento da fatura no Sandbox
-		fmt.Println("   💳 Simulando Confirmação de Pagamento no Sandbox...")
-		simResp, simCode, simErr := callAPI(sandboxBaseURL, sandboxKey, "POST", fmt.Sprintf("/payments/%s/simulatePayment", pay.ID), map[string]interface{}{
+		fmt.Println("   💳 Confirmando Recebimento de Pagamento no Sandbox...")
+		simResp, simCode, simErr := callAPI(sandboxBaseURL, sandboxKey, "POST", fmt.Sprintf("/payments/%s/receiveInCash", pay.ID), map[string]interface{}{
 			"value":       pay.Value,
 			"paymentDate": time.Now().Format("2006-01-02"),
 		})
 
-		if simErr == nil && simCode == 200 {
-			fmt.Printf("   🎉 Pagamento Simulado com Sucesso no Asaas Sandbox!\n")
+		if simErr == nil && (simCode == 200 || simCode == 201) {
+			fmt.Printf("   🎉 Pagamento Confirmado com Sucesso no Asaas Sandbox!\n")
 		} else {
 			fmt.Printf("   ℹ️ Resposta da simulação (HTTP %d): %s\n", simCode, string(simResp))
 		}
