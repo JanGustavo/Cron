@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bytes"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -290,8 +291,8 @@ type AsaasSubscription struct {
 }
 
 func (h *BillingHandler) ProcessAsaasWebhook(w http.ResponseWriter, r *http.Request, payload []byte, token string) {
-	if token != h.cfg.AsaasWebhookToken {
-		log.Printf("Token do webhook Asaas inválido: recebido=%s", token)
+	if subtle.ConstantTimeCompare([]byte(token), []byte(h.cfg.AsaasWebhookToken)) != 1 {
+		log.Printf("Tentativa de acesso ao webhook Asaas com token inválido")
 		writeError(w, http.StatusUnauthorized, "Token de autenticação do webhook inválido")
 		return
 	}
