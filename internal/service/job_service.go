@@ -149,11 +149,9 @@ func (s *JobService) GetByID(ctx context.Context, id, projectID string) (*job.Jo
 	if err != nil {
 		return nil, fmt.Errorf("JobService.GetByID: %w", err)
 	}
-	if j == nil {
+	if j == nil || j.ProjectID != projectID {
+		// Retorna uniformemente "não encontrado" para evitar enumeração de IDs existentes de outros tenants
 		return nil, ErrJobNotFound
-	}
-	if j.ProjectID != projectID {
-		return nil, ErrUnauthorized
 	}
 	return j, nil
 }

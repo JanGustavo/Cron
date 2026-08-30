@@ -1,62 +1,87 @@
 package middleware
 
 import (
+	"encoding/json"
+	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
 
-// bucket controla tokens disponíveis por API Key.
-type bucket struct {
+type rateBucket struct {
 	tokens    int
 	lastReset time.Time
 	mu        sync.Mutex
 }
 
+type RateLimiter struct {
+	buckets map[string]*rateBucket
+	mu      sync.RWMutex
+	rate    int
+}
+
 var (
-	buckets   = make(map[string]*bucket)
-	bucketsMu sync.RWMutex
+	globalLimiter = &RateLimiter{
+		buckets: make(map[string]*rateBucket),
+		rate:    300,
+	}
 )
 
-// RateLimit limita a 60 requests por minuto por API Key.
-// Usa token bucket in-memory — suficiente para o MVP com uma instância.
-// Em múltiplas instâncias: migrar para Redis com INCR + EXPIRE.
+// RateLimit aplica controle de taxa tanto por Token de autenticação quanto por Real IP do cliente.
+// Nunca permite bypass de requisições desautenticadas.
 func RateLimit(requestsPerMinute int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Determina a chave do cliente: Token Authorization ou Real IP
 			key := r.Header.Get("Authorization")
 			if key == "" {
-				next.ServeHTTP(w, r)
-				return
+				// Fallback seguro: extrai IP do cliente (considerando cabeçalhos de proxy do Chi)
+				ip, _, err := net.SplitHostPort(r.RemoteAddr)
+				if err != nil {
+					ip = r.RemoteAddr
+				}
+				if realIP := r.Header.Get("X-Real-IP"); realIP != "" {
+					ip = realIP
+				} else if forwarded := r.Header.Get("X-Forwarded-For"); forwarded != "" {
+					ip = strings.TrimSpace(strings.Split(forwarded, ",")[0])
+				}
+				key = "ip:" + ip
 			}
 
-			bucketsMu.RLock()
-			b, exists := buckets[key]
-			bucketsMu.RUnlock()
+			globalLimiter.mu.RLock()
+			b, exists := globalLimiter.buckets[key]
+			globalLimiter.mu.RUnlock()
 
 			if !exists {
-				b = &bucket{tokens: requestsPerMinute, lastReset: time.Now()}
-				bucketsMu.Lock()
-				buckets[key] = b
-				bucketsMu.Unlock()
+				b = &rateBucket{tokens: requestsPerMinute, lastReset: time.Now()}
+				globalLimiter.mu.Lock()
+				globalLimiter.buckets[key] = b
+				globalLimiter.mu.Unlock()
 			}
 
 			b.mu.Lock()
-			defer b.mu.Unlock()
-
-			// Reseta tokens a cada minuto
+			// Reseta a janela a cada 1 minuto
 			if time.Since(b.lastReset) >= time.Minute {
 				b.tokens = requestsPerMinute
 				b.lastReset = time.Now()
 			}
 
 			if b.tokens <= 0 {
+				b.mu.Unlock()
+				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", "60")
-				writeUnauthorized(w, "rate limit excedido — 60 req/min por API Key")
+				w.WriteHeader(http.StatusTooManyRequests)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error":   "too_many_requests",
+					"message": "Limite de requisições excedido. Tente novamente em 1 minuto.",
+				})
 				return
 			}
 
 			b.tokens--
+			b.mu.Unlock()
+
 			next.ServeHTTP(w, r)
 		})
 	}

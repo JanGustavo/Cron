@@ -31,11 +31,12 @@ func New(
 	r := chi.NewRouter()
 
 	// Middlewares globais
-	r.Use(middleware.RateLimit(300))
+	r.Use(chimiddleware.RealIP)
+	r.Use(middleware.SecurityHeaders)
 	r.Use(middleware.CORS)
+	r.Use(middleware.RateLimit(300))
 	r.Use(chimiddleware.Logger)
 	r.Use(chimiddleware.Recoverer)
-	r.Use(chimiddleware.RealIP)
 
 	// Rotas publicas — sem autenticacao
 	r.Get("/health", healthHandler.Check)
