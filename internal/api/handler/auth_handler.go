@@ -383,8 +383,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 4. Gera JWT
-	duration := 24 * time.Hour
+	// 4. Gera JWT válido por 7 dias
+	duration := 7 * 24 * time.Hour
 	jwtToken, err := auth.GenerateToken(u.ID, u.Email, activeProjectID, string(u.Plan), h.cfg.JWTSecret, duration)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Erro ao gerar token de autenticação")
@@ -526,8 +526,8 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// 5. Gera token JWT válido por 24 horas para o login imediato
-	duration := 24 * time.Hour
+	// 5. Gera token JWT válido por 7 dias para o login imediato
+	duration := 7 * 24 * time.Hour
 	jwtToken, err := auth.GenerateToken(u.ID, u.Email, projects[0].ID, string(u.Plan), h.cfg.JWTSecret, duration)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Erro ao assinar token de autenticação")
@@ -1130,8 +1130,8 @@ func (h *AuthHandler) handleOAuthUser(w http.ResponseWriter, r *http.Request, em
 		}
 	}
 
-	// 5. Gera token JWT válido por 24 horas
-	duration := 24 * time.Hour
+	// 5. Gera token JWT válido por 7 dias
+	duration := 7 * 24 * time.Hour
 	jwtToken, err := auth.GenerateToken(u.ID, u.Email, projID, string(u.Plan), h.cfg.JWTSecret, duration)
 	if err != nil {
 		http.Redirect(w, r, h.cfg.FrontendURL+"/?oauth_error=token_generation_failed", http.StatusTemporaryRedirect)
@@ -1723,8 +1723,8 @@ func (h *AuthHandler) SwitchProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Gera um novo token JWT com o novo projID
-	duration := 24 * time.Hour
+	// Gera um novo token JWT com o novo projID válido por 7 dias
+	duration := 7 * 24 * time.Hour
 	jwtToken, err := auth.GenerateToken(u.ID, u.Email, projID, string(u.Plan), h.cfg.JWTSecret, duration)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Erro ao gerar novo token")
