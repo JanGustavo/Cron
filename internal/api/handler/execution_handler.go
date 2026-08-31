@@ -3,6 +3,8 @@ package handler
 import (
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -133,3 +135,87 @@ func (h *ExecutionHandler) ListGlobal(w http.ResponseWriter, r *http.Request) {
 		"limit": limit,
 	})
 }
+
+// GetTelemetry — GET /v1/executions/telemetry?time_range=24h&granularity=auto&job_ids=...
+// @Summary Obter telemetria agregada de execuções
+// @Description Retorna buckets agregados matematicamente para os gráficos de telemetria sem limitação de linhas.
+// @Tags Executions
+// @Produce json
+// @Param time_range query string false "Janela de tempo: 1h, 6h, 24h, 3d, 7d, 30d"
+// @Param granularity query string false "Granularidade: auto, 5m, 15m, 1h, 3h, 6h, 1d"
+// @Param job_ids query string false "IDs de jobs separados por vírgula"
+// @Success 200 {object} postgres.TelemetryResponse "Dados de telemetria agregada"
+// @Failure 401 {object} map[string]string "Não autenticado"
+// @Failure 500 {object} map[string]string "Erro ao buscar telemetria"
+// @Security ApiKeyAuth
+// @Router /v1/executions/telemetry [get]
+func (h *ExecutionHandler) GetTelemetry(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+
+	timeRange := r.URL.Query().Get("time_range")
+	granularity := r.URL.Query().Get("granularity")
+	jobIDsRaw := r.URL.Query().Get("job_ids")
+
+	var jobIDs []string
+	if jobIDsRaw != "" {
+		for _, id := range strings.Split(jobIDsRaw, ",") {
+			trimmed := strings.TrimSpace(id)
+			if trimmed != "" {
+				jobIDs = append(jobIDs, trimmed)
+			}
+		}
+	}
+
+	now := time.Now().UTC()
+	var startTime time.Time
+	var intervalSec int
+
+	switch timeRange {
+	case "1h":
+		startTime = now.Add(-1 * time.Hour)
+		intervalSec = 300 // 5m
+	case "6h":
+		startTime = now.Add(-6 * time.Hour)
+		intervalSec = 900 // 15m
+	case "3d":
+		startTime = now.Add(-72 * time.Hour)
+		intervalSec = 10800 // 3h
+	case "7d":
+		startTime = now.Add(-7 * 24 * time.Hour)
+		intervalSec = 86400 // 1d (ou 43200 12h)
+	case "30d":
+		startTime = now.Add(-30 * 24 * time.Hour)
+		intervalSec = 86400 // 1d
+	case "24h":
+		fallthrough
+	default:
+		timeRange = "24h"
+		startTime = now.Add(-24 * time.Hour)
+		intervalSec = 3600 // 1h
+	}
+
+	// Manual Granularity Override
+	switch granularity {
+	case "5m":
+		intervalSec = 300
+	case "15m":
+		intervalSec = 900
+	case "1h":
+		intervalSec = 3600
+	case "3h":
+		intervalSec = 10800
+	case "6h":
+		intervalSec = 21600
+	case "1d":
+		intervalSec = 86400
+	}
+
+	res, err := h.executionRepo.GetTelemetryData(r.Context(), proj.ID, startTime, intervalSec, jobIDs)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao buscar telemetria de execuções")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, res)
+}
+

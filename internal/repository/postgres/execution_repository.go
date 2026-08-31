@@ -4,9 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/JanGustavo/Cron/internal/domain/execution"
+	"github.com/lib/pq"
 )
 
 type ExecutionRepository struct {
@@ -256,4 +258,195 @@ func (r *ExecutionRepository) CleanupExpiredUnverifiedUsers(ctx context.Context)
 	}
 	return nil
 }
+
+type TelemetryBucket struct {
+	BucketTime   time.Time `json:"bucket_time"`
+	Volume       int       `json:"volume"`
+	SuccessCount int       `json:"success_count"`
+	FailedCount  int       `json:"failed_count"`
+	AvgLatency   int       `json:"avg_latency"`
+	MaxLatency   int       `json:"max_latency"`
+	FailedJobs   []string  `json:"failed_jobs"`
+}
+
+type TelemetrySummary struct {
+	TotalVolume  int     `json:"total_volume"`
+	SuccessCount int     `json:"success_count"`
+	FailedCount  int     `json:"failed_count"`
+	SuccessRate  float64 `json:"success_rate"`
+	AvgLatency   int     `json:"avg_latency"`
+	MaxLatency   int     `json:"max_latency"`
+}
+
+type TelemetryErrorDigest struct {
+	SSRF    int `json:"ssrf"`
+	Timeout int `json:"timeout"`
+	DNS     int `json:"dns"`
+	HTTP5xx int `json:"http5xx"`
+	HTTP4xx int `json:"http4xx"`
+	Others  int `json:"others"`
+}
+
+type TelemetryResponse struct {
+	Buckets []*TelemetryBucket    `json:"buckets"`
+	Summary TelemetrySummary      `json:"summary"`
+	Errors  TelemetryErrorDigest  `json:"errors"`
+}
+
+// GetTelemetryData returns mathematically aggregated telemetry buckets for any project and arbitrary time range.
+func (r *ExecutionRepository) GetTelemetryData(
+	ctx context.Context,
+	projectID string,
+	startTime time.Time,
+	intervalSeconds int,
+	jobIDs []string,
+) (*TelemetryResponse, error) {
+	if intervalSeconds <= 0 {
+		intervalSeconds = 3600
+	}
+
+	whereClause := "WHERE j.project_id = $1 AND e.triggered_at >= $2"
+	args := []interface{}{projectID, startTime}
+	argCount := 2
+
+	if len(jobIDs) > 0 {
+		argCount++
+		args = append(args, pq.Array(jobIDs))
+		whereClause += fmt.Sprintf(" AND j.id = ANY($%d)", argCount)
+	}
+
+	// 1. Query Buckets
+	bucketArgs := append([]interface{}{}, args...)
+	argCount++
+	bucketArgs = append(bucketArgs, intervalSeconds)
+	intervalArg := argCount
+
+	bucketQuery := fmt.Sprintf(`
+		SELECT 
+			to_timestamp(floor(extract(epoch from e.triggered_at) / $%d) * $%d) as bucket_time,
+			COUNT(e.id) as volume,
+			COUNT(e.id) FILTER (WHERE e.status = 'success') as success_count,
+			COUNT(e.id) FILTER (WHERE e.status = 'failed') as failed_count,
+			COALESCE(ROUND(AVG(e.duration_ms)), 0) as avg_latency,
+			COALESCE(MAX(e.duration_ms), 0) as max_latency,
+			COALESCE(ARRAY_AGG(DISTINCT j.name) FILTER (WHERE e.status = 'failed'), '{}') as failed_jobs
+		FROM executions e
+		INNER JOIN jobs j ON j.id = e.job_id
+		%s
+		GROUP BY bucket_time
+		ORDER BY bucket_time ASC`,
+		intervalArg, intervalArg, whereClause,
+	)
+
+	rows, err := r.db.QueryContext(ctx, bucketQuery, bucketArgs...)
+	if err != nil {
+		return nil, fmt.Errorf("ExecutionRepository.GetTelemetryData buckets: %w", err)
+	}
+	defer rows.Close()
+
+	var buckets []*TelemetryBucket
+	for rows.Next() {
+		b := &TelemetryBucket{}
+		var failedJobs pq.StringArray
+		if err := rows.Scan(
+			&b.BucketTime,
+			&b.Volume,
+			&b.SuccessCount,
+			&b.FailedCount,
+			&b.AvgLatency,
+			&b.MaxLatency,
+			&failedJobs,
+		); err != nil {
+			return nil, fmt.Errorf("ExecutionRepository.GetTelemetryData scan bucket: %w", err)
+		}
+		b.FailedJobs = failedJobs
+		if b.FailedJobs == nil {
+			b.FailedJobs = []string{}
+		}
+		buckets = append(buckets, b)
+	}
+
+	if buckets == nil {
+		buckets = []*TelemetryBucket{}
+	}
+
+	// 2. Query Summary
+	summaryQuery := fmt.Sprintf(`
+		SELECT 
+			COUNT(e.id) as total_volume,
+			COUNT(e.id) FILTER (WHERE e.status = 'success') as success_count,
+			COUNT(e.id) FILTER (WHERE e.status = 'failed') as failed_count,
+			COALESCE(ROUND(AVG(e.duration_ms)), 0) as avg_latency,
+			COALESCE(MAX(e.duration_ms), 0) as max_latency
+		FROM executions e
+		INNER JOIN jobs j ON j.id = e.job_id
+		%s`,
+		whereClause,
+	)
+
+	var summary TelemetrySummary
+	err = r.db.QueryRowContext(ctx, summaryQuery, args...).Scan(
+		&summary.TotalVolume,
+		&summary.SuccessCount,
+		&summary.FailedCount,
+		&summary.AvgLatency,
+		&summary.MaxLatency,
+	)
+	if err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("ExecutionRepository.GetTelemetryData summary: %w", err)
+	}
+
+	if summary.TotalVolume > 0 {
+		summary.SuccessRate = float64(summary.SuccessCount) / float64(summary.TotalVolume) * 100.0
+	} else {
+		summary.SuccessRate = 100.0
+	}
+
+	// 3. Error classification breakdown
+	errQuery := fmt.Sprintf(`
+		SELECT 
+			COALESCE(e.response_body, '') as resp,
+			COALESCE(e.http_status, 0) as status_code,
+			COUNT(e.id) as cnt
+		FROM executions e
+		INNER JOIN jobs j ON j.id = e.job_id
+		%s AND e.status = 'failed'
+		GROUP BY resp, status_code`,
+		whereClause,
+	)
+
+	errRows, err := r.db.QueryContext(ctx, errQuery, args...)
+	var errorDigest TelemetryErrorDigest
+	if err == nil {
+		defer errRows.Close()
+		for errRows.Next() {
+			var resp string
+			var status int
+			var count int
+			if scanErr := errRows.Scan(&resp, &status, &count); scanErr == nil {
+				respLower := strings.ToLower(resp)
+				if strings.Contains(respLower, "ssrf") {
+					errorDigest.SSRF += count
+				} else if strings.Contains(respLower, "timeout") || strings.Contains(respLower, "deadline") {
+					errorDigest.Timeout += count
+				} else if strings.Contains(respLower, "lookup") || strings.Contains(respLower, "dns") || strings.Contains(respLower, "no such host") {
+					errorDigest.DNS += count
+				} else if status >= 500 {
+					errorDigest.HTTP5xx += count
+				} else if status >= 400 {
+					errorDigest.HTTP4xx += count
+				} else {
+					errorDigest.Others += count
+				}
+			}
+		}
+	}
+
+	return &TelemetryResponse{
+		Buckets: buckets,
+		Summary: summary,
+		Errors:  errorDigest,
+	}, nil
+}
+
 

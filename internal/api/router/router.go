@@ -102,6 +102,7 @@ func New(
 		r.Post("/v1/projects/{id}/switch", authHandler.SwitchProject)
 		r.Get("/v1/jobs/{id}/executions", executionHandler.List)
 		r.Get("/v1/executions", executionHandler.ListGlobal)
+		r.Get("/v1/executions/telemetry", executionHandler.GetTelemetry)
 
 		r.Get("/v1/pix/valores", pixHandler.ListValores)
 		r.Get("/v1/pix/qr", pixHandler.GenerateQR)
