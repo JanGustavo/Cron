@@ -7,6 +7,7 @@ package config
 import (
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -37,16 +38,22 @@ type Config struct {
 	SmtpFrom           string
 	SchedulerInterval  string
 	WorkerConcurrency  int
-	DisableGemini          bool
-	BillingProvider        string
-	AsaasAPIKey            string
-	AsaasWebhookToken      string
+	DisableGemini      bool
+	BillingProvider    string
+	AsaasAPIKey        string
+	AsaasWebhookToken  string
 }
 
 // Carrega as variáveis de ambiente e retorna uma instância de Config.
 func Load() *Config {
-	if err := godotenv.Load(); err != nil {
-		log.Println("Nenhum .env file encontrado, lendo variáveis de ambiente")
+	if envPath, err := findDotEnvInParents(); err == nil && envPath != "" {
+		if err := godotenv.Load(envPath); err == nil {
+			log.Printf("INFO: carregando variáveis de ambiente de %s", envPath)
+		}
+	} else {
+		if err := godotenv.Load(); err != nil {
+			log.Println("Nenhum .env file encontrado, lendo variáveis de ambiente")
+		}
 	}
 
 	c := &Config{
@@ -72,10 +79,10 @@ func Load() *Config {
 		SmtpFrom:           getEnv("SMTP_FROM", "no-reply@cronflow.me"),
 		SchedulerInterval:  getEnv("SCHEDULER_INTERVAL", "30s"),
 		WorkerConcurrency:  getEnvAsInt("WORKER_CONCURRENCY", 50),
-		DisableGemini:          getEnvAsBool("DISABLE_GEMINI", false),
-		BillingProvider:        getEnv("BILLING_PROVIDER", "asaas"),
-		AsaasAPIKey:            getEnv("ASAAS_API_KEY", ""),
-		AsaasWebhookToken:      getEnv("ASAAS_WEBHOOK_TOKEN", ""),
+		DisableGemini:      getEnvAsBool("DISABLE_GEMINI", false),
+		BillingProvider:    getEnv("BILLING_PROVIDER", "asaas"),
+		AsaasAPIKey:        getEnv("ASAAS_API_KEY", ""),
+		AsaasWebhookToken:  getEnv("ASAAS_WEBHOOK_TOKEN", ""),
 	}
 
 	// -------------------------------------------------------------
@@ -114,6 +121,26 @@ func Load() *Config {
 }
 
 // getEnv retorna o valor da variável de ambiente ou um fallback se não estiver definida.
+func findDotEnvInParents() (string, error) {
+	wd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+
+	for {
+		candidate := filepath.Join(wd, ".env")
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			return candidate, nil
+		}
+
+		parent := filepath.Dir(wd)
+		if parent == wd {
+			return "", os.ErrNotExist
+		}
+		wd = parent
+	}
+}
+
 func getEnv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
 		return value
@@ -158,4 +185,3 @@ func getEnvAsBool(key string, fallback bool) bool {
 	}
 	return value
 }
-
