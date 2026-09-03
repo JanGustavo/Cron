@@ -25,6 +25,11 @@ func NewUserRepository(db *sql.DB) *UserRepository{
 	return &UserRepository{db: db}
 }
 
+// GetDB retorna a conexão do banco para queries diretas (uso interno/admin)
+func (r *UserRepository) GetDB() *sql.DB {
+	return r.db
+}
+
 // CreateUser insere um novo usuário no banco.
 func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}

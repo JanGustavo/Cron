@@ -88,6 +88,14 @@ func New(
 			r.Post("/users/{id}/verify", adminHandler.VerifyUserEmail)
 			r.Delete("/users/{id}", adminHandler.DeleteUser)
 			r.Get("/stats", adminHandler.GetSystemStats)
+
+			// CEO Dashboard Metrics
+			r.Get("/metrics/revenue", adminHandler.GetRevenueMetrics)
+			r.Get("/metrics/users/growth", adminHandler.GetUserGrowthMetrics)
+			r.Get("/metrics/jobs", adminHandler.GetJobAnalytics)
+			r.Get("/metrics/system/health", adminHandler.GetSystemHealth)
+			r.Get("/audit-logs", adminHandler.GetAuditLogs)
+			r.Get("/export/users", adminHandler.ExportUsersCSV)
 		})
 
 		r.Post("/v1/agent/chat", agentHandler.Chat)

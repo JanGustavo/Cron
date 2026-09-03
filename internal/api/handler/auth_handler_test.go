@@ -2,8 +2,10 @@ package handler
 
 import (
 	"testing"
+	"time"
 
 	"github.com/JanGustavo/Cron/internal/auth"
+	userDomain "github.com/JanGustavo/Cron/internal/domain/user"
 )
 
 func TestIsValidCPF(t *testing.T) {
@@ -58,5 +60,25 @@ func TestPasswordHashingAndVerification(t *testing.T) {
 
 	if auth.CheckPasswordHash("SenhaIncorreta123", hash) {
 		t.Fatal("expected CheckPasswordHash to return false for incorrect password")
+	}
+}
+
+func TestBuildUserCSVRowIncludesRealJobCountAndEscapesValues(t *testing.T) {
+	createdAt := time.Date(2025, 1, 17, 12, 0, 0, 0, time.UTC)
+	user := &userDomain.User{
+		ID:         "abc123",
+		Email:      "joao,teste@example.com",
+		Plan:       userDomain.PlanPaid,
+		FullName:   "João \"Teste\"",
+		Role:       "admin",
+		IsVerified: true,
+		CreatedAt:  createdAt,
+	}
+
+	row := buildUserCSVRow(user, 42, "monthly", "2025-02-15", "active", "asaas", "cust-1", "sub-9")
+	want := "abc123,\"joao,teste@example.com\",\"João \"\"Teste\"\"\",pro,admin,true,42,monthly,2025-02-15,active,asaas,cust-1,sub-9,2025-01-17\n"
+
+	if got := row; got != want {
+		t.Fatalf("unexpected CSV row\nwant: %q\n got: %q", want, got)
 	}
 }
