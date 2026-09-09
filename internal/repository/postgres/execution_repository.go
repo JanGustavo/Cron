@@ -94,7 +94,11 @@ func (r *ExecutionRepository) ListByProject(
 
 	if endDate != "" {
 		argCount++
-		args = append(args, endDate+" 23:59:59.999")
+		formattedEndDate := endDate
+		if len(endDate) == 10 && !strings.Contains(endDate, "T") && !strings.Contains(endDate, " ") {
+			formattedEndDate = endDate + " 23:59:59.999"
+		}
+		args = append(args, formattedEndDate)
 		whereClause += fmt.Sprintf(" AND e.triggered_at <= $%d::timestamptz", argCount)
 	}
 

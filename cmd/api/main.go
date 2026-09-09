@@ -1,9 +1,13 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"net/url"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/JanGustavo/Cron/docs"
 	"github.com/JanGustavo/Cron/internal/api/handler"
@@ -187,13 +191,29 @@ func main() {
 	// Router
 	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, billingHandler, adminHandler, entitlementEngine, cfg.JWTSecret)
 
-	// 5. sobe o servidor
-	log.Printf("API rodando em http://localhost:%s", cfg.Port)
-	if err := http.ListenAndServe(":"+cfg.Port, r); err != nil {
-		log.Fatalf("Falha ao iniciar servidor: %v", err)
+	// 5. Sobe o servidor com suporte a Graceful Shutdown
+	srv := &http.Server{
+		Addr:    ":" + cfg.Port,
+		Handler: r,
 	}
 
-	queue.NewEnqueuer(cfg.RedisURL)
+	go func() {
+		log.Printf("API rodando em http://localhost:%s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("Falha ao iniciar servidor: %v", err)
+		}
+	}()
 
-	
+	stopCtx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	<-stopCtx.Done()
+
+	log.Println("Encerrando servidor API graciosamente...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := srv.Shutdown(shutdownCtx); err != nil {
+		log.Printf("Erro ao encerrar servidor API: %v", err)
+	}
+	log.Println("API encerrada com sucesso.")
 }
