@@ -20,8 +20,8 @@ func (r *Runner) checkBilling(ctx context.Context, baseURL, runMode, token strin
 	start := time.Now()
 	checkoutBody := map[string]string{
 		"price_id":     "price_test",
-		"success_url":  "https://cronflow.jangustavo.me/success",
-		"cancel_url":   "https://cronflow.jangustavo.me/cancel",
+		"success_url":  "https://cronflow.app/success",
+		"cancel_url":   "https://cronflow.app/cancel",
 	}
 	resp, body, err := r.doRequest(ctx, baseURL, "POST", "/v1/billing/checkout", checkoutBody, token)
 	duration := time.Since(start)
@@ -33,7 +33,7 @@ func (r *Runner) checkBilling(ctx context.Context, baseURL, runMode, token strin
 
 	// Test Portal Session
 	start = time.Now()
-	portalBody := map[string]string{"return_url": "https://cronflow.jangustavo.me/profile"}
+	portalBody := map[string]string{"return_url": "https://cronflow.app/profile"}
 	resp, body, err = r.doRequest(ctx, baseURL, "POST", "/v1/billing/portal", portalBody, token)
 	duration = time.Since(start)
 	if err == nil && (resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusBadRequest) {

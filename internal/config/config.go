@@ -76,7 +76,7 @@ func Load() *Config {
 		SmtpPort:           getEnvAsInt("SMTP_PORT", 587),
 		SmtpUser:           getEnv("SMTP_USER", ""),
 		SmtpPass:           getEnv("SMTP_PASS", ""),
-		SmtpFrom:           getEnv("SMTP_FROM", "no-reply@cronflow.me"),
+		SmtpFrom:           getEnv("SMTP_FROM", "noreply@cronflow.app"),
 		SchedulerInterval:  getEnv("SCHEDULER_INTERVAL", "30s"),
 		WorkerConcurrency:  getEnvAsInt("WORKER_CONCURRENCY", 50),
 		DisableGemini:      getEnvAsBool("DISABLE_GEMINI", false),

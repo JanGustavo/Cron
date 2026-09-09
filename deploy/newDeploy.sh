@@ -296,8 +296,8 @@ main() {
     deploy_nginx_and_restart
 
     log "=== 🎉 DEPLOY CONCLUÍDO COM SUCESSO! ==="
-    log "Frontend: https://cronflow.jangustavo.me"
-    log "API:      https://cronflow.jangustavo.me/api"
+    log "Frontend: https://cronflow.app"
+    log "API:      https://cronflow.app/api"
     log "Log salvo em: $LOG_FILE"
 }
 

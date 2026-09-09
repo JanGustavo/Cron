@@ -23,8 +23,11 @@ func CORS(next http.Handler) http.Handler {
 		} else {
 			// Em produção, restringe estritamente ao domínio oficial e subdomínios permitidos
 			allowedOrigins := []string{
-				"https://cronflow.jangustavo.me",
-				"https://api.cronflow.jangustavo.me",
+				"https://cronflow.app",
+				"https://www.cronflow.app",
+				"https://api.cronflow.app",
+				"https://cronflow.app",
+				"https://api.cronflow.app",
 			}
 			if frontendURL != "" {
 				allowedOrigins = append(allowedOrigins, frontendURL)
@@ -42,7 +45,7 @@ func CORS(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 			} else if origin == "" {
 				// Requisições diretas de cURL/SDK sem header Origin
-				w.Header().Set("Access-Control-Allow-Origin", "https://cronflow.jangustavo.me")
+				w.Header().Set("Access-Control-Allow-Origin", "https://cronflow.app")
 			}
 		}
 

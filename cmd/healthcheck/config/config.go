@@ -69,7 +69,7 @@ type ReportConfig struct {
 
 func Load() *Config {
 	return &Config{
-		BaseURL:        getEnv("HEALTHCHECK_BASE_URL", "https://cronflow.jangustavo.me"),
+		BaseURL:        getEnv("HEALTHCHECK_BASE_URL", "https://cronflow.app"),
 		LocalBaseURL:   getEnv("HEALTHCHECK_LOCAL_URL", "http://localhost:8080"),
 		TestEmail:      getEnv("HEALTHCHECK_TEST_EMAIL", "healthcheck_"+randomSuffix()+"@test.cronflow.sh"),
 		TestPassword:   getEnv("HEALTHCHECK_TEST_PASSWORD", "HealthCheck123!"),
