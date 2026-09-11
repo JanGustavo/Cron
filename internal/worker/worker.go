@@ -19,11 +19,12 @@ import (
 )
 
 type Worker struct {
-	jobRepo       *postgres.JobRepository
-	executionRepo *postgres.ExecutionRepository
-	alertService  *service.AlertService
-	enqueuer      *queue.Enqueuer
-	jwtSecret     string
+	jobRepo        *postgres.JobRepository
+	executionRepo  *postgres.ExecutionRepository
+	alertService   *service.AlertService
+	enqueuer       *queue.Enqueuer
+	jwtSecret      string
+	monitorService *service.MonitorService
 }
 
 func New(
@@ -32,13 +33,15 @@ func New(
 	alertService *service.AlertService,
 	enqueuer *queue.Enqueuer,
 	jwtSecret string,
+	monitorService *service.MonitorService,
 ) *Worker {
 	return &Worker{
-		jobRepo:       jobRepo,
-		executionRepo: executionRepo,
-		alertService:  alertService,
-		enqueuer:      enqueuer,
-		jwtSecret:     jwtSecret,
+		jobRepo:        jobRepo,
+		executionRepo:  executionRepo,
+		alertService:   alertService,
+		enqueuer:       enqueuer,
+		jwtSecret:      jwtSecret,
+		monitorService: monitorService,
 	}
 }
 
@@ -116,6 +119,14 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 		} else {
 			log.Printf("worker: job %s executado com sucesso — HTTP %d em %dms",
 				j.ID, result.StatusCode, result.DurationMs)
+		}
+	}
+
+	// Avaliação automática de Regras de Monitoramento no Payload da Resposta HTTP
+	if w.monitorService != nil && len(responseBody) > 0 {
+		_, _, evalErr := w.monitorService.EvaluateJobPayload(ctx, j.ProjectID, j.ID, []byte(responseBody))
+		if evalErr != nil {
+			log.Printf("worker: erro ao avaliar regras de monitoramento do job %s: %v", j.ID, evalErr)
 		}
 	}
 

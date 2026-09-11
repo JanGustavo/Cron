@@ -129,14 +129,14 @@ func (r *MonitorRepository) ListRulesByKey(ctx context.Context, projectID, key s
 	return rules, nil
 }
 
-// ListRulesByJob lista todas as regras ativas vinculadas a um job específico.
-func (r *MonitorRepository) ListRulesByJob(ctx context.Context, jobID string) ([]*monitor.MonitorRule, error) {
+// ListRulesByJob lista todas as regras ativas vinculadas a um job específico OU globais (job_id IS NULL).
+func (r *MonitorRepository) ListRulesByJob(ctx context.Context, projectID, jobID string) ([]*monitor.MonitorRule, error) {
 	query := `
 		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at
 		FROM monitor_rules
-		WHERE job_id = $1 AND is_enabled = true;
+		WHERE project_id = $1 AND (job_id = $2 OR job_id IS NULL) AND is_enabled = true;
 	`
-	rows, err := r.db.QueryContext(ctx, query, jobID)
+	rows, err := r.db.QueryContext(ctx, query, projectID, jobID)
 	if err != nil {
 		return nil, fmt.Errorf("MonitorRepository.ListRulesByJob: %w", err)
 	}
@@ -169,7 +169,7 @@ func (r *MonitorRepository) ListRulesByJob(ctx context.Context, jobID string) ([
 // ListRulesByProject lista todas as regras de um projeto.
 func (r *MonitorRepository) ListRulesByProject(ctx context.Context, projectID string) ([]*monitor.MonitorRule, error) {
 	query := `
-		SELECT id, project_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at
+		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at
 		FROM monitor_rules
 		WHERE project_id = $1
 		ORDER BY created_at DESC;
@@ -186,6 +186,7 @@ func (r *MonitorRepository) ListRulesByProject(ctx context.Context, projectID st
 		if err := rows.Scan(
 			&rule.ID,
 			&rule.ProjectID,
+			&rule.JobID,
 			&rule.Name,
 			&rule.Key,
 			&rule.Operator,

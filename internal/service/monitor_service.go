@@ -158,8 +158,8 @@ func (s *MonitorService) EvaluateJobPayload(ctx context.Context, projectID, jobI
 		return false, nil, nil
 	}
 
-	// 2. Busca todas as regras associadas a este job específico
-	rules, err := s.repo.ListRulesByJob(ctx, jobID)
+	// 2. Busca todas as regras associadas a este job específico ou globais
+	rules, err := s.repo.ListRulesByJob(ctx, projectID, jobID)
 	if err != nil {
 		return false, nil, fmt.Errorf("MonitorService.EvaluateJobPayload: %w", err)
 	}
@@ -271,9 +271,9 @@ func extractJSONField(data map[string]any, path string) (string, bool) {
 	return "", false
 }
 
-// ListRulesByJob retorna todas as regras ativas de um job.
-func (s *MonitorService) ListRulesByJob(ctx context.Context, jobID string) ([]*monitor.MonitorRule, error) {
-	return s.repo.ListRulesByJob(ctx, jobID)
+// ListRulesByJob retorna todas as regras ativas de um job ou globais.
+func (s *MonitorService) ListRulesByJob(ctx context.Context, projectID, jobID string) ([]*monitor.MonitorRule, error) {
+	return s.repo.ListRulesByJob(ctx, projectID, jobID)
 }
 
 // evaluateRule verifica se o currentValue viola a regra definida por (operator, threshold).

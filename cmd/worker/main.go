@@ -29,14 +29,16 @@ func main() {
 	// Repositories e services
 	jobRepo := postgres.NewJobRepository(db)
 	executionRepo := postgres.NewExecutionRepository(db)
+	monitorRepo := postgres.NewMonitorRepository(db)
 	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
 	alertService := service.NewAlertService(db, mailService)
+	monitorService := service.NewMonitorService(monitorRepo, alertService, cfg.JWTSecret)
 
 	enqueuer := queue.NewEnqueuer(cfg.RedisURL)
 	defer enqueuer.Close()
 
 	// Worker handler
-	w := worker.New(jobRepo, executionRepo, alertService, enqueuer, cfg.JWTSecret)
+	w := worker.New(jobRepo, executionRepo, alertService, enqueuer, cfg.JWTSecret, monitorService)
 
 	// Servidor Asynq — consome a fila Redis
 	srv := asynq.NewServer(

@@ -126,6 +126,7 @@ func (h *MonitorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var input struct {
+		JobID          *string `json:"job_id"`
 		Name           string  `json:"name"`
 		Key            string  `json:"key"`
 		Operator       string  `json:"operator"`
@@ -156,8 +157,14 @@ func (h *MonitorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		isEnabled = *input.IsEnabled
 	}
 
+	var jobIDPtr *string
+	if input.JobID != nil && *input.JobID != "" && *input.JobID != "all" && *input.JobID != "global" {
+		jobIDPtr = input.JobID
+	}
+
 	rule := &monitor.MonitorRule{
 		ProjectID:      proj.ID,
+		JobID:          jobIDPtr,
 		Name:           input.Name,
 		Key:            input.Key,
 		Operator:       monitor.Operator(input.Operator),
