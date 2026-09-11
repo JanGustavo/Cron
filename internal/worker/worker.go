@@ -12,6 +12,7 @@ import (
 
 	"github.com/JanGustavo/Cron/internal/domain/execution"
 	"github.com/JanGustavo/Cron/internal/domain/job"
+	"github.com/JanGustavo/Cron/internal/domain/monitor"
 	"github.com/JanGustavo/Cron/internal/queue"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/service"
@@ -27,22 +28,8 @@ type Worker struct {
 	monitorService *service.MonitorService
 }
 
-func New(
-	jobRepo *postgres.JobRepository,
-	executionRepo *postgres.ExecutionRepository,
-	alertService *service.AlertService,
-	enqueuer *queue.Enqueuer,
-	jwtSecret string,
-	monitorService *service.MonitorService,
-) *Worker {
-	return &Worker{
-		jobRepo: jobRepo,
-		executionRepo: executionRepo,
-		alertService: alertService,
-		enqueuer: enqueuer,
-		jwtSecret: jwtSecret,
-		monitorService: monitorService,
-	}
+func New(jobRepo *postgres.JobRepository, executionRepo *postgres.ExecutionRepository, alertService *service.AlertService, enqueuer *queue.Enqueuer, jwtSecret string, monitorService *service.MonitorService) *Worker {
+	return &Worker{jobRepo: jobRepo, executionRepo: executionRepo, alertService: alertService, enqueuer: enqueuer, jwtSecret: jwtSecret, monitorService: monitorService}
 }
 
 func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
@@ -59,7 +46,6 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 		log.Printf("worker: job %s não encontrado — descartando task", p.JobID)
 		return nil
 	}
-
 	if j.Status == job.StatusFailing || j.Status == job.StatusPaused {
 		log.Printf("worker: job %s está inativo/suspenso (status: %s) — descartando execução", p.JobID, j.Status)
 		return nil
@@ -82,13 +68,11 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 	}
 
 	log.Printf("worker: executando job %s — tentativa %d — %s %s", j.ID, attemptNumber, j.HTTPMethod, j.URL)
-
 	result, err := httputil.Execute(ctx, string(j.HTTPMethod), j.URL, j.Headers, j.Payload, timeout)
 
 	execStatus := execution.StatusSuccess
 	var httpStatus *int
 	responseBody := ""
-
 	if err != nil {
 		execStatus = execution.StatusFailed
 		responseBody = err.Error()
@@ -96,7 +80,6 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 	} else {
 		httpStatus = &result.StatusCode
 		responseBody = result.Body
-
 		if result.StatusCode >= 400 {
 			execStatus = execution.StatusFailed
 			log.Printf("worker: job %s retornou HTTP %d", j.ID, result.StatusCode)
@@ -105,7 +88,6 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 		}
 	}
 
-	// Avalia o payload antes de persistir a execução para que o resultado fique associado ao mesmo registro.
 	var ruleEvaluations []monitor.RuleStatus
 	if w.monitorService != nil && len(responseBody) > 0 {
 		_, ruleEvaluations, err = w.monitorService.EvaluateJobPayload(ctx, j.ProjectID, j.ID, []byte(responseBody))
@@ -118,66 +100,41 @@ func (w *Worker) ProcessTask(ctx context.Context, t *asynq.Task) error {
 		JobID: j.ID,
 		Status: execStatus,
 		HTTPStatus: httpStatus,
-		DurationMs: func() int {
-			if result != nil {
-				return result.DurationMs
-			}
-			return 0
-		}(),
+		DurationMs: func() int { if result != nil { return result.DurationMs }; return 0 }(),
 		ResponseBody: responseBody,
 		AttemptNumber: attemptNumber,
 	}
-
 	if err := w.executionRepo.CreateWithRuleEvaluations(ctx, exec, ruleEvaluations); err != nil {
 		log.Printf("worker: erro ao salvar execution do job %s: %v", j.ID, err)
 	}
 
 	if execStatus == execution.StatusFailed {
-		if err := w.jobRepo.IncrementFailures(ctx, j.ID); err != nil {
-			log.Printf("worker: erro ao incrementar falhas do job %s: %v", j.ID, err)
-		}
-
+		if err := w.jobRepo.IncrementFailures(ctx, j.ID); err != nil { log.Printf("worker: erro ao incrementar falhas do job %s: %v", j.ID, err) }
 		updatedJob, _ := w.jobRepo.FindByID(ctx, j.ID)
 		if updatedJob != nil && updatedJob.ShouldAlert() {
-			statusCode := 0
-			if httpStatus != nil {
-				statusCode = *httpStatus
-			}
-			w.alertService.Notify(*updatedJob.WebhookAlertURL, j.ID, j.Name,
-				updatedJob.ConsecutiveFailures, statusCode, responseBody, updatedJob.ProjectID, w.jwtSecret)
+			statusCode := 0; if httpStatus != nil { statusCode = *httpStatus }
+			w.alertService.Notify(*updatedJob.WebhookAlertURL, j.ID, j.Name, updatedJob.ConsecutiveFailures, statusCode, responseBody, updatedJob.ProjectID, w.jwtSecret)
 		}
-
 		if updatedJob != nil && updatedJob.ConsecutiveFailures == 4 {
-			statusCode := 0
-			if httpStatus != nil {
-				statusCode = *httpStatus
-			}
+			statusCode := 0; if httpStatus != nil { statusCode = *httpStatus }
 			w.alertService.NotifyEmail(j.ID, j.Name, updatedJob.ConsecutiveFailures, statusCode, responseBody, updatedJob.ProjectID)
 		}
-
 		if updatedJob != nil && (updatedJob.Status == job.StatusFailing || updatedJob.ConsecutiveFailures >= 4) {
 			log.Printf("worker: job %s atingiu o limite de falhas consecutivas (%d) — suspendendo e cancelando retries da fila", j.ID, updatedJob.ConsecutiveFailures)
 			return fmt.Errorf("job %s suspenso após %d falhas: %w", j.ID, updatedJob.ConsecutiveFailures, asynq.SkipRetry)
 		}
-
 		return fmt.Errorf("job %s falhou — HTTP status: %v", j.ID, httpStatus)
 	}
 
-	if err := w.jobRepo.ResetFailures(ctx, j.ID); err != nil {
-		log.Printf("worker: erro ao resetar falhas do job %s: %v", j.ID, err)
-	}
-
+	if err := w.jobRepo.ResetFailures(ctx, j.ID); err != nil { log.Printf("worker: erro ao resetar falhas do job %s: %v", j.ID, err) }
 	if j.NextJobID != nil && *j.NextJobID != "" {
 		if *j.NextJobID == j.ID {
 			log.Printf("worker: auto-referência detectada no job %s — interrompendo loop infinito de execução", j.ID)
 		} else {
 			log.Printf("worker: job %s concluído com sucesso — enfileirando próximo job %s", j.ID, *j.NextJobID)
-			if err := w.enqueuer.Enqueue(ctx, *j.NextJobID); err != nil {
-				log.Printf("worker: erro ao enfileirar próximo job %s: %v", *j.NextJobID, err)
-			}
+			if err := w.enqueuer.Enqueue(ctx, *j.NextJobID); err != nil { log.Printf("worker: erro ao enfileirar próximo job %s: %v", *j.NextJobID, err) }
 		}
 	}
-
 	return nil
 }
 
@@ -190,9 +147,7 @@ func replacePlaceholders(val string, j *job.Job, attempt int) string {
 }
 
 func replacePayloadPlaceholders(payload map[string]any, j *job.Job, attempt int) map[string]any {
-	if payload == nil {
-		return nil
-	}
+	if payload == nil { return nil }
 	res := make(map[string]any)
 	for k, v := range payload {
 		switch val := v.(type) {
