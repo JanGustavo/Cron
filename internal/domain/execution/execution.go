@@ -1,9 +1,9 @@
 package execution
 
-// Domain Entity: Execution.
-// Responsabilidade: representar uma tentativa de execução de um Job.
-// Cada vez que um Worker dispara um HTTP request, uma Execution é criada.
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Status string
 
@@ -14,17 +14,17 @@ const (
 )
 
 type Execution struct {
-	ID              string     `json:"id"`
-	JobID           string     `json:"job_id"`
-	Status          Status     `json:"status"`
-	HTTPStatus      *int       `json:"http_status,omitempty"`
-	DurationMs      int        `json:"duration_ms"`
-	ResponseBody    string     `json:"response_body,omitempty"`
-	AttemptNumber   int        `json:"attempt_number"`
-	TriggeredAt     time.Time  `json:"triggered_at"`
-	StartedAt       *time.Time `json:"started_at,omitempty"`
-	FinishedAt      *time.Time `json:"finished_at,omitempty"`
-	RuleEvaluations any        `json:"rule_evaluations,omitempty"`
+	ID              string          `json:"id"`
+	JobID           string          `json:"job_id"`
+	Status          Status          `json:"status"`
+	HTTPStatus      *int            `json:"http_status,omitempty"`
+	DurationMs      int             `json:"duration_ms"`
+	ResponseBody    string          `json:"response_body,omitempty"`
+	AttemptNumber   int             `json:"attempt_number"`
+	TriggeredAt     time.Time       `json:"triggered_at"`
+	StartedAt       *time.Time      `json:"started_at,omitempty"`
+	FinishedAt      *time.Time      `json:"finished_at,omitempty"`
+	RuleEvaluations json.RawMessage `json:"rule_evaluations,omitempty"`
 }
 
 type ProjectExecution struct {
