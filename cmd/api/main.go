@@ -138,6 +138,29 @@ func main() {
 			UNIQUE (provider, provider_event_id)
 		);
 
+		CREATE TABLE IF NOT EXISTS monitor_rules (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			name VARCHAR(100) NOT NULL,
+			key VARCHAR(100) NOT NULL,
+			operator VARCHAR(10) NOT NULL,
+			threshold_value TEXT NOT NULL,
+			alert_email BOOLEAN NOT NULL DEFAULT TRUE,
+			webhook_url TEXT,
+			is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+
+		CREATE TABLE IF NOT EXISTS monitor_key_values (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			key VARCHAR(100) NOT NULL,
+			current_value TEXT NOT NULL,
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			CONSTRAINT uq_project_key UNIQUE (project_id, key)
+		);
+
 		INSERT INTO plans (code, name, price_monthly, price_yearly, max_jobs, max_users, logs_retention_days, workflows_enabled, alerts_webhooks_enabled, multi_project_enabled)
 		VALUES 
 		('free', 'Plano Free', 0, 0, 5, 1, 7, FALSE, FALSE, FALSE),
@@ -159,6 +182,7 @@ func main() {
 	jobRepo := postgres.NewJobRepository(db)
 	executionRepo := postgres.NewExecutionRepository(db)
 	billingRepo := postgres.NewBillingRepository(db)
+	monitorRepo := postgres.NewMonitorRepository(db)
 
 	// queue
 	enqueuer := queue.NewEnqueuer(cfg.RedisURL)
@@ -168,6 +192,8 @@ func main() {
 	entitlementEngine := service.NewEntitlementEngine(billingRepo)
 	jobService := service.NewJobService(jobRepo, userRepo, entitlementEngine, enqueuer, cfg)
 	mailService := service.NewMailService(cfg.SmtpHost, cfg.SmtpPort, cfg.SmtpUser, cfg.SmtpPass, cfg.SmtpFrom)
+	alertService := service.NewAlertService(db, mailService)
+	monitorService := service.NewMonitorService(monitorRepo, alertService, cfg.JWTSecret)
 
 	// Handlers
 	healthHandler := handler.NewHealthHandler(db, cfg.RedisURL, cfg.AppEnv, cfg.SchedulerInterval, cfg.WorkerConcurrency, cfg)
@@ -178,6 +204,7 @@ func main() {
 	pixHandler := handler.NewPixHandler()
 	metricsHandler := handler.NewMetricsHandler(cfg.RedisURL)
 	billingHandler := handler.NewBillingHandler(entitlementEngine, cfg)
+	monitorHandler := handler.NewMonitorHandler(monitorService)
 	
 	var rClient *redis.Client
 	if cfg.RedisURL != "" {
@@ -189,7 +216,8 @@ func main() {
 	adminHandler := handler.NewAdminHandler(userRepo, billingRepo, rClient, cfg)
 
 	// Router
-	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, billingHandler, adminHandler, entitlementEngine, cfg.JWTSecret)
+	r := router.New(userRepo, jobHandler, healthHandler, executionHandler, authHandler, agentHandler, pixHandler, metricsHandler, billingHandler, adminHandler, monitorHandler, entitlementEngine, cfg.JWTSecret)
+
 
 	// 5. Sobe o servidor com suporte a Graceful Shutdown
 	srv := &http.Server{

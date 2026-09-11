@@ -286,3 +286,154 @@ func (s *AlertService) ProcessDailyDigests(ctx context.Context) {
 		}
 	}
 }
+
+type monitorRuleViolationPayload struct {
+	Event          string `json:"event"`
+	RuleID         string `json:"rule_id"`
+	RuleName       string `json:"rule_name"`
+	Key            string `json:"key"`
+	Operator       string `json:"operator"`
+	CurrentValue   string `json:"current_value"`
+	ThresholdValue string `json:"threshold_value"`
+	TriggeredAt    string `json:"triggered_at"`
+}
+
+// NotifyKeyViolation envia notificação de webhook quando uma regra de monitoramento é violada.
+func (s *AlertService) NotifyKeyViolation(webhookURL, projectID, jwtSecret, ruleID, ruleName, key, operator, currentValue, thresholdValue string) {
+	if webhookURL == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		var req *http.Request
+		var err error
+		var payloadBytes []byte
+
+		if strings.Contains(webhookURL, "ntfy") {
+			message := fmt.Sprintf("⚠️ Alerta CronFlow: Regra '%s' violada!\nChave: %s\nValor Atual: %s\nCondição: %s %s", ruleName, key, currentValue, operator, thresholdValue)
+			payloadBytes = []byte(message)
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, strings.NewReader(message))
+			if err == nil {
+				req.Header.Set("Content-Type", "text/plain")
+				req.Header.Set("Title", fmt.Sprintf("CronFlow Monitor Alerta: %s", key))
+				req.Header.Set("Priority", "4")
+				req.Header.Set("Tags", "warning,chart_with_downwards_trend")
+			}
+		} else if strings.Contains(webhookURL, "discord.com/api/webhooks") || strings.Contains(webhookURL, "discordapp.com/api/webhooks") {
+			discordBody := map[string]any{
+				"content": fmt.Sprintf("⚠️ **CronFlow Alerta de Regra de Negócio**\n**Regra:** %s\n**Chave:** `%s`\n**Valor Atual:** `%s` (Condição: `%s %s`)", ruleName, key, currentValue, operator, thresholdValue),
+			}
+			data, _ := json.Marshal(discordBody)
+			payloadBytes = data
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+		} else if strings.Contains(webhookURL, "hooks.slack.com") {
+			slackBody := map[string]any{
+				"text": fmt.Sprintf("⚠️ *CronFlow Alerta de Regra de Negócio*\n*Regra:* %s\n*Chave:* `%s`\n*Valor Atual:* `%s` (Condição: `%s %s`)", ruleName, key, currentValue, operator, thresholdValue),
+			}
+			data, _ := json.Marshal(slackBody)
+			payloadBytes = data
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+		} else {
+			payload := monitorRuleViolationPayload{
+				Event:          "monitor.rule_violated",
+				RuleID:         ruleID,
+				RuleName:       ruleName,
+				Key:            key,
+				Operator:       operator,
+				CurrentValue:   currentValue,
+				ThresholdValue: thresholdValue,
+				TriggeredAt:    time.Now().UTC().Format(time.RFC3339),
+			}
+			data, errMarshal := json.Marshal(payload)
+			if errMarshal != nil {
+				log.Printf("AlertService.NotifyKeyViolation: erro ao serializar payload: %v", errMarshal)
+				return
+			}
+			payloadBytes = data
+			req, err = http.NewRequestWithContext(ctx, "POST", webhookURL, bytes.NewReader(data))
+			if err == nil {
+				req.Header.Set("Content-Type", "application/json")
+			}
+		}
+
+		if err != nil {
+			log.Printf("AlertService.NotifyKeyViolation: erro ao criar request: %v", err)
+			return
+		}
+
+		if projectID != "" && len(payloadBytes) > 0 {
+			timestamp := time.Now().Unix()
+			secret := ""
+			if s.db != nil {
+				var dbSecret *string
+				_ = s.db.QueryRowContext(ctx, `SELECT webhook_secret FROM projects WHERE id = $1`, projectID).Scan(&dbSecret)
+				if dbSecret != nil && *dbSecret != "" {
+					secret = *dbSecret
+				}
+			}
+			if secret == "" {
+				secret = auth.ComputeWebhookSecret(projectID, jwtSecret)
+			}
+
+			sig := auth.SignWebhookPayload(payloadBytes, timestamp, secret)
+			req.Header.Set("X-CronFlow-Timestamp", strconv.FormatInt(timestamp, 10))
+			req.Header.Set("X-CronFlow-Signature", sig)
+		}
+
+		req.Header.Set("User-Agent", "CronFlow-Alerter/1.0")
+		resp, err := httputil.SafeClient().Do(req)
+		if err != nil {
+			log.Printf("AlertService.NotifyKeyViolation: falha ao entregar alerta para %s: %v", webhookURL, err)
+			return
+		}
+		defer resp.Body.Close()
+		log.Printf("AlertService.NotifyKeyViolation: alerta entregue para chave %s — status %d", key, resp.StatusCode)
+	}()
+}
+
+// NotifyEmailKeyViolation envia e-mail de alerta para regras de monitoramento violadas.
+func (s *AlertService) NotifyEmailKeyViolation(projectID, ruleName, key, operator, currentValue, thresholdValue string) {
+	if s.mailService == nil || projectID == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		var userEmail string
+		var emailAlertsEnabled bool
+		errUser := s.db.QueryRowContext(ctx, `
+			SELECT u.email, u.email_alerts_enabled
+			FROM users u
+			JOIN projects p ON p.user_id = u.id
+			WHERE p.id = $1`, projectID).Scan(&userEmail, &emailAlertsEnabled)
+
+		if errUser == nil && emailAlertsEnabled {
+			subject := fmt.Sprintf("⚠️ Alerta CronFlow: Regra '%s' violada para a chave '%s'", ruleName, key)
+			body := fmt.Sprintf(`
+				<div style="font-family: sans-serif; background-color: #0b0f19; color: #f3f4f6; padding: 24px; border-radius: 8px;">
+					<h2 style="color: #ef4444;">⚠️ Regra de Negócio Violada</h2>
+					<p>O CronFlow detectou uma violação de regra de monitoramento no seu projeto.</p>
+					<table style="width: 100%%; text-align: left; background-color: #111827; padding: 16px; border-radius: 6px; margin: 16px 0;">
+						<tr><th>Regra:</th><td>%s</td></tr>
+						<tr><th>Chave:</th><td>%s</td></tr>
+						<tr><th>Valor Atual:</th><td style="color: #f87171; font-weight: bold;">%s</td></tr>
+						<tr><th>Condição Alerta:</th><td>%s %s</td></tr>
+					</table>
+					<p style="font-size: 12px; color: #9ca3af;">Você recebeu este e-mail porque seus alertas por e-mail estão ativados no CronFlow.</p>
+				</div>
+			`, ruleName, key, currentValue, operator, thresholdValue)
+
+			_ = s.mailService.SendRawEmail(userEmail, subject, body)
+		}
+	}()
+}
+

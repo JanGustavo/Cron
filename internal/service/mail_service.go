@@ -570,3 +570,26 @@ func (s *MailService) SendDowngradeWarningEmail(to, frontendURL string, daysRema
 	return smtp.SendMail(addr, auth, s.from, []string{to}, msg)
 }
 
+// SendRawEmail envia um e-mail HTML genérico.
+func (s *MailService) SendRawEmail(to, subject, body string) error {
+	if s.resendKey != "" {
+		return s.sendViaResend(to, subject, body)
+	}
+
+	if s.host == "" {
+		log.Printf("MailService Mock (Raw Email enviado para %s): %s", to, subject)
+		return nil
+	}
+
+	addr := fmt.Sprintf("%s:%d", s.host, s.port)
+	auth := smtp.PlainAuth("", s.user, s.pass, s.host)
+	msg := []byte(fmt.Sprintf("To: %s\r\n"+
+		"Subject: %s\r\n"+
+		"MIME-version: 1.0;\r\n"+
+		"Content-Type: text/html; charset=\"UTF-8\";\r\n\r\n"+
+		"%s\r\n", to, subject, body))
+
+	return smtp.SendMail(addr, auth, s.from, []string{to}, msg)
+}
+
+

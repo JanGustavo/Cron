@@ -46,6 +46,7 @@ type Job struct {
 	NextJobID           *string           `json:"next_job_id,omitempty"`
 	Tags                []string          `json:"tags,omitempty"`
 	LastRunStatus       *string           `json:"last_run_status,omitempty"`
+	MonitoringKey       *string           `json:"monitoring_key,omitempty"` // Chave de monitoramento opcional (ex: "goroutines_count")
 	CreatedAt           time.Time         `json:"created_at"`
 	UpdatedAt           time.Time         `json:"updated_at"`
 }

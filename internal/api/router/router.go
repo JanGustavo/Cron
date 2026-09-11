@@ -25,6 +25,7 @@ func New(
 	metricsHandler *handler.MetricsHandler,
 	billingHandler *handler.BillingHandler,
 	adminHandler *handler.AdminHandler,
+	monitorHandler *handler.MonitorHandler,
 	entitlementEngine *service.EntitlementEngine,
 	jwtSecret string,
 ) *chi.Mux {
@@ -135,7 +136,18 @@ func New(
 			r.Delete("/{id}", jobHandler.Delete)
 		})
 
+		// Rotas de Monitoramento e Regras de Negócio
+r.Route("/v1/monitor", func(r chi.Router) {
+		r.Post("/check", monitorHandler.CheckPayload)
+		r.Get("/keys/{key}", monitorHandler.GetKey)
+		r.Post("/rules", monitorHandler.CreateRule)
+		r.Get("/rules", monitorHandler.ListRules)
+		r.Put("/rules/{id}", monitorHandler.UpdateRule)
+		r.Delete("/rules/{id}", monitorHandler.DeleteRule)
+		})
+
 	})
 
 	return r
 }
+

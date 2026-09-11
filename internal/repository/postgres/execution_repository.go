@@ -23,7 +23,7 @@ func (r *ExecutionRepository) Create(ctx context.Context, e *execution.Execution
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO executions
 			(job_id, status, http_status, duration_ms, response_body, attempt_number)
-		VALUES ($1, $2, $3, $4, $5, $6)`,
+		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
 		e.JobID, e.Status, e.HTTPStatus, e.DurationMs, e.ResponseBody, e.AttemptNumber,
 	)
 	if err != nil {
