@@ -111,11 +111,11 @@ func (s *MailService) SendPasswordResetEmail(to, resetLink string) error {
 
 	if s.resendKey != "" {
 		err := s.sendViaResend(to, subject, body)
-		if err != nil {
-			return fmt.Errorf("MailService.SendPasswordResetEmail (Resend): %w", err)
+		if err == nil {
+			log.Printf("MailService: E-mail de redefinição de senha enviado com sucesso via Resend para %s", to)
+			return nil
 		}
-		log.Printf("MailService: E-mail de redefinição de senha enviado com sucesso via Resend para %s", to)
-		return nil
+		log.Printf("MailService: Falha ao enviar via Resend (%v), tentando fallback para SMTP...", err)
 	}
 
 	if s.host == "" || s.user == "" {
@@ -185,11 +185,11 @@ func (s *MailService) SendVerificationEmail(to, verificationLink string) error {
 
 	if s.resendKey != "" {
 		err := s.sendViaResend(to, subject, body)
-		if err != nil {
-			return fmt.Errorf("MailService.SendVerificationEmail (Resend): %w", err)
+		if err == nil {
+			log.Printf("MailService: E-mail de confirmação enviado com sucesso via Resend para %s", to)
+			return nil
 		}
-		log.Printf("MailService: E-mail de confirmação enviado com sucesso via Resend para %s", to)
-		return nil
+		log.Printf("MailService: Falha ao enviar via Resend (%v), tentando fallback para SMTP...", err)
 	}
 
 	if s.host == "" || s.user == "" {
@@ -313,11 +313,11 @@ func (s *MailService) SendFailureAlert(to, frontendURL string, jName, jID, sched
 
 	if s.resendKey != "" {
 		err := s.sendViaResend(to, subject, body)
-		if err != nil {
-			return fmt.Errorf("MailService.SendFailureAlert (Resend): %w", err)
+		if err == nil {
+			log.Printf("MailService: E-mail de alerta de falha enviado com sucesso via Resend para %s", to)
+			return nil
 		}
-		log.Printf("MailService: E-mail de alerta de falha enviado com sucesso via Resend para %s", to)
-		return nil
+		log.Printf("MailService: Falha ao enviar via Resend (%v), tentando fallback para SMTP...", err)
 	}
 
 	if s.host == "" || s.user == "" {
@@ -466,11 +466,11 @@ func (s *MailService) SendDailyDigest(to, frontendURL string, items []FailedJobD
 
 	if s.resendKey != "" {
 		err := s.sendViaResend(to, subject, body)
-		if err != nil {
-			return fmt.Errorf("MailService.SendDailyDigest (Resend): %w", err)
+		if err == nil {
+			log.Printf("MailService: E-mail de resumo diário enviado com sucesso via Resend para %s", to)
+			return nil
 		}
-		log.Printf("MailService: E-mail de resumo diário enviado com sucesso via Resend para %s", to)
-		return nil
+		log.Printf("MailService: Falha ao enviar via Resend (%v), tentando fallback para SMTP...", err)
 	}
 
 	if s.host == "" || s.user == "" {
@@ -551,7 +551,11 @@ func (s *MailService) SendDowngradeWarningEmail(to, frontendURL string, daysRema
 </html>`, daysRemaining, daysRemaining, activeJobsCount, maxFreeLimit, maxFreeLimit, activeJobsCount-maxFreeLimit, activeJobsCount, frontendURL)
 
 	if s.resendKey != "" {
-		return s.sendViaResend(to, subject, body)
+		err := s.sendViaResend(to, subject, body)
+		if err == nil {
+			return nil
+		}
+		log.Printf("MailService: Falha ao enviar via Resend (%v), tentando fallback para SMTP...", err)
 	}
 
 	if s.host == "" {
@@ -573,7 +577,11 @@ func (s *MailService) SendDowngradeWarningEmail(to, frontendURL string, daysRema
 // SendRawEmail envia um e-mail HTML genérico.
 func (s *MailService) SendRawEmail(to, subject, body string) error {
 	if s.resendKey != "" {
-		return s.sendViaResend(to, subject, body)
+		err := s.sendViaResend(to, subject, body)
+		if err == nil {
+			return nil
+		}
+		log.Printf("MailService: Falha ao enviar via Resend (%v), tentando fallback para SMTP...", err)
 	}
 
 	if s.host == "" {
