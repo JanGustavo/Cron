@@ -23,7 +23,7 @@ func (r *ExecutionRepository) Create(ctx context.Context, e *execution.Execution
 	_, err := r.db.ExecContext(ctx, `
 		INSERT INTO executions
 			(job_id, status, http_status, duration_ms, response_body, attempt_number)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		VALUES ($1, $2, $3, $4, $5, $6)`,
 		e.JobID, e.Status, e.HTTPStatus, e.DurationMs, e.ResponseBody, e.AttemptNumber,
 	)
 	if err != nil {
@@ -34,10 +34,10 @@ func (r *ExecutionRepository) Create(ctx context.Context, e *execution.Execution
 
 func (r *ExecutionRepository) ListByJob(ctx context.Context, jobID string, limit int) ([]*execution.Execution, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, job_id, status, http_status, duration_ms, response_body, attempt_number, triggered_at
+		SELECT id, job_id, status, http_status, duration_ms, response_body, attempt_number, triggered_at, rule_evaluations, COALESCE(transport_status, status)
 		FROM executions
 		WHERE job_id = $1
-		ORDER BY triggered_at DESC
+		ORDER BY triggered_at DESC, id DESC
 		LIMIT $2`,
 		jobID, limit,
 	)
@@ -49,15 +49,17 @@ func (r *ExecutionRepository) ListByJob(ctx context.Context, jobID string, limit
 	var executions []*execution.Execution
 	for rows.Next() {
 		e := &execution.Execution{}
+		var rawEvaluations []byte
 		if err := rows.Scan(
 			&e.ID, &e.JobID, &e.Status, &e.HTTPStatus,
-			&e.DurationMs, &e.ResponseBody, &e.AttemptNumber, &e.TriggeredAt,
+			&e.DurationMs, &e.ResponseBody, &e.AttemptNumber, &e.TriggeredAt, &rawEvaluations, &e.TransportStatus,
 		); err != nil {
 			return nil, fmt.Errorf("ExecutionRepository.ListByJob scan: %w", err)
 		}
+		e.RuleEvaluations = rawEvaluations
 		executions = append(executions, e)
 	}
-	return executions, nil
+	return executions, rows.Err()
 }
 
 func (r *ExecutionRepository) ListByProject(
@@ -127,12 +129,12 @@ func (r *ExecutionRepository) ListByProject(
 	query := fmt.Sprintf(`
 		SELECT 
 			e.id, e.job_id, e.status, e.http_status, e.duration_ms, 
-			e.response_body, e.attempt_number, e.triggered_at,
+			e.response_body, e.attempt_number, e.triggered_at, e.rule_evaluations, COALESCE(e.transport_status, e.status),
 			j.name as job_name, j.url as job_url
 		FROM executions e
 		INNER JOIN jobs j ON j.id = e.job_id
 		%s
-		ORDER BY e.triggered_at DESC
+		ORDER BY e.triggered_at DESC, e.id DESC
 		LIMIT $%d OFFSET $%d`, whereClause, limitArg, offsetArg)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
@@ -145,16 +147,18 @@ func (r *ExecutionRepository) ListByProject(
 	for rows.Next() {
 		pe := &execution.ProjectExecution{}
 		var httpStatus sql.NullInt64
+		var rawEvaluations []byte
 
 		err := rows.Scan(
 			&pe.ID, &pe.JobID, &pe.Status, &httpStatus, &pe.DurationMs,
-			&pe.ResponseBody, &pe.AttemptNumber, &pe.TriggeredAt,
+			&pe.ResponseBody, &pe.AttemptNumber, &pe.TriggeredAt, &rawEvaluations, &pe.TransportStatus,
 			&pe.JobName, &pe.JobURL,
 		)
 		if err != nil {
 			return nil, 0, fmt.Errorf("ExecutionRepository.ListByProject scan: %w", err)
 		}
 
+		pe.RuleEvaluations = rawEvaluations
 		if httpStatus.Valid {
 			val := int(httpStatus.Int64)
 			pe.HTTPStatus = &val
@@ -163,37 +167,31 @@ func (r *ExecutionRepository) ListByProject(
 		executions = append(executions, pe)
 	}
 
-	return executions, total, nil
+	return executions, total, rows.Err()
 }
 
 // DeleteExpiredExecutions deleta execuções antigas conforme a cota de retenção do plano de cada usuário.
 func (r *ExecutionRepository) DeleteExpiredExecutions(ctx context.Context) (int64, error) {
+	// Match BillingRepository.GetSubscription + EntitlementEngine.GetUserLimits:
+	// an explicit Pro account retains Pro benefits even without an active subscription.
 	query := `
-		DELETE FROM executions e
-		WHERE e.triggered_at < NOW() - (
-			COALESCE(
-				(
-					SELECT p.logs_retention_days
-					FROM plans p
-					JOIN subscriptions s ON s.plan_code = p.code
-					JOIN projects proj ON proj.user_id = s.user_id
-					JOIN jobs j ON j.project_id = proj.id
-					WHERE j.id = e.job_id
-					  AND s.status IN ('active', 'trialing')
-				),
-				(
-					SELECT p.logs_retention_days
-					FROM plans p
-					WHERE p.code = 'free'
-				)
-			) || ' days'
-		)::INTERVAL
-	`
+  DELETE FROM executions e
+  USING jobs j
+  JOIN projects proj ON proj.id = j.project_id
+  JOIN users u ON u.id = proj.user_id
+  JOIN plans p ON p.code = cronflow_effective_plan(u.id)
+  WHERE e.job_id = j.id
+   AND p.logs_retention_days > 0
+   AND e.triggered_at < NOW() - make_interval(days => p.logs_retention_days)
+ `
 	result, err := r.db.ExecContext(ctx, query)
 	if err != nil {
 		return 0, fmt.Errorf("ExecutionRepository.DeleteExpiredExecutions: %w", err)
 	}
-	affected, _ := result.RowsAffected()
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("ExecutionRepository.DeleteExpiredExecutions count: %w", err)
+	}
 	return affected, nil
 }
 
@@ -292,9 +290,9 @@ type TelemetryErrorDigest struct {
 }
 
 type TelemetryResponse struct {
-	Buckets []*TelemetryBucket    `json:"buckets"`
-	Summary TelemetrySummary      `json:"summary"`
-	Errors  TelemetryErrorDigest  `json:"errors"`
+	Buckets []*TelemetryBucket   `json:"buckets"`
+	Summary TelemetrySummary     `json:"summary"`
+	Errors  TelemetryErrorDigest `json:"errors"`
 }
 
 // GetTelemetryData returns mathematically aggregated telemetry buckets for any project and arbitrary time range.
@@ -330,10 +328,10 @@ func (r *ExecutionRepository) GetTelemetryData(
 			to_timestamp(floor(extract(epoch from e.triggered_at) / $%d) * $%d) as bucket_time,
 			COUNT(e.id) as volume,
 			COUNT(e.id) FILTER (WHERE e.status = 'success') as success_count,
-			COUNT(e.id) FILTER (WHERE e.status = 'failed') as failed_count,
+			COUNT(e.id) FILTER (WHERE e.status IN ('failed', 'timeout', 'validation_failed')) as failed_count,
 			COALESCE(ROUND(AVG(e.duration_ms)), 0) as avg_latency,
 			COALESCE(MAX(e.duration_ms), 0) as max_latency,
-			COALESCE(ARRAY_AGG(DISTINCT j.name) FILTER (WHERE e.status = 'failed'), '{}') as failed_jobs
+			COALESCE(ARRAY_AGG(DISTINCT j.name) FILTER (WHERE e.status IN ('failed', 'timeout', 'validation_failed')), '{}') as failed_jobs
 		FROM executions e
 		INNER JOIN jobs j ON j.id = e.job_id
 		%s
@@ -379,7 +377,7 @@ func (r *ExecutionRepository) GetTelemetryData(
 		SELECT 
 			COUNT(e.id) as total_volume,
 			COUNT(e.id) FILTER (WHERE e.status = 'success') as success_count,
-			COUNT(e.id) FILTER (WHERE e.status = 'failed') as failed_count,
+			COUNT(e.id) FILTER (WHERE e.status IN ('failed', 'timeout', 'validation_failed')) as failed_count,
 			COALESCE(ROUND(AVG(e.duration_ms)), 0) as avg_latency,
 			COALESCE(MAX(e.duration_ms), 0) as max_latency
 		FROM executions e
@@ -452,5 +450,3 @@ func (r *ExecutionRepository) GetTelemetryData(
 		Errors:  errorDigest,
 	}, nil
 }
-
-

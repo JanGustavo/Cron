@@ -42,3 +42,10 @@ type BillingEvent struct {
 	ProcessingError *string    `json:"processing_error,omitempty"`
 	CreatedAt       time.Time  `json:"created_at"`
 }
+
+type JobGrace struct {
+	EndsAt     *time.Time `json:"endsAt,omitempty"`
+	ActiveJobs int        `json:"activeJobs"`
+	MaxJobs    int        `json:"maxJobs"`
+	ProEnded   bool       `json:"proEnded"`
+}

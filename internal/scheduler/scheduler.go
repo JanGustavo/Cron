@@ -22,15 +22,21 @@ import (
 // REGRA CRÍTICA: o Scheduler NUNCA executa HTTP requests.
 // Apenas lê o banco e escreve na fila.
 
+type executionMaintenance interface {
+	DeleteExpiredExecutions(context.Context) (int64, error)
+	CleanupExpiredUnverifiedUsers(context.Context) error
+}
+
 type Scheduler struct {
-	jobRepo       *postgres.JobRepository
-	executionRepo *postgres.ExecutionRepository
-	alertService  *service.AlertService
-	enqueuer      *queue.Enqueuer
-	lockRepo      *redis.LockRepository
-	interval      time.Duration
-	cleanupTick   int
-	nowFunc       func() time.Time
+	jobRepo        *postgres.JobRepository
+	executionRepo  executionMaintenance
+	alertService   *service.AlertService
+	enqueuer       *queue.Enqueuer
+	lockRepo       *redis.LockRepository
+	interval       time.Duration
+	cleanupTick    int
+	nextLogCleanup time.Time
+	nowFunc        func() time.Time
 }
 
 func New(
@@ -140,18 +146,12 @@ func (s *Scheduler) tick(ctx context.Context) {
 		}
 	}
 
-	// Limpeza a cada 2880 ciclos = ~24h (2880 × 30s)
+	s.cleanupExecutions(ctx, now)
+
+	// Keep the existing daily unverified-account cleanup separate from log retention.
 	s.cleanupTick++
 	if s.cleanupTick >= 2880 {
 		s.cleanupTick = 0
-		
-		// 1. Limpeza de logs de execução expirados
-		deleted, err := s.executionRepo.DeleteExpiredExecutions(ctx)
-		if err != nil {
-			log.Printf("Scheduler: erro na limpeza de logs: %v", err)
-		} else if deleted > 0 {
-			log.Printf("Scheduler: limpeza — %d execuções antigas expiradas removidas", deleted)
-		}
 
 		// 2. Limpeza de contas não ativas/verificadas criadas há mais de 24h
 		if err := s.executionRepo.CleanupExpiredUnverifiedUsers(ctx); err != nil {
@@ -160,4 +160,19 @@ func (s *Scheduler) tick(ctx context.Context) {
 			log.Printf("Scheduler: limpeza de contas expiradas não verificadas executada com sucesso")
 		}
 	}
+}
+
+// Check expiration on startup and hourly, independent of tick frequency or uptime.
+func (s *Scheduler) cleanupExecutions(ctx context.Context, now time.Time) {
+	if now.Before(s.nextLogCleanup) {
+		return
+	}
+	deleted, err := s.executionRepo.DeleteExpiredExecutions(ctx)
+	if err != nil {
+		s.nextLogCleanup = now.Add(time.Minute)
+		log.Printf("Scheduler: erro na limpeza de logs: %v; nova tentativa em 1 minuto", err)
+		return
+	}
+	s.nextLogCleanup = now.Add(time.Hour)
+	log.Printf("Scheduler: limpeza de logs concluída — %d execuções expiradas removidas", deleted)
 }

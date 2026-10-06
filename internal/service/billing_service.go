@@ -10,6 +10,7 @@ import (
 
 type BillingRepository interface {
 	GetSubscription(ctx context.Context, userID string) (*billing.Subscription, error)
+	GetJobGrace(ctx context.Context, userID string) (*billing.JobGrace, error)
 	GetPlanLimits(ctx context.Context, planCode string) (*billing.PlanLimits, error)
 	CountActiveJobs(ctx context.Context, userID string) (int, error)
 	CreateBillingEvent(ctx context.Context, event *billing.BillingEvent) error
@@ -35,7 +36,7 @@ func (e *EntitlementEngine) GetUserLimits(ctx context.Context, userID string) (*
 	}
 
 	planCode := "free"
-	if sub != nil && (sub.Status == "active" || sub.Status == "trialing") {
+	if sub != nil && (sub.Status == "active" || sub.Status == "trialing") && (sub.CurrentPeriodEnd == nil || sub.CurrentPeriodEnd.After(time.Now())) {
 		planCode = sub.PlanCode
 	}
 
@@ -68,7 +69,7 @@ func (e *EntitlementEngine) RegisterBillingEvent(ctx context.Context, provider, 
 		return nil, false, err
 	}
 	if existing != nil {
-		return existing, true, nil
+		return existing, existing.ProcessedAt != nil && existing.ProcessingError == nil, nil
 	}
 
 	event := &billing.BillingEvent{
@@ -106,4 +107,8 @@ func (e *EntitlementEngine) GetSubscriptionByProviderSubID(ctx context.Context, 
 // GetSubscription retrieves subscription details for a given user.
 func (e *EntitlementEngine) GetSubscription(ctx context.Context, userID string) (*billing.Subscription, error) {
 	return e.repo.GetSubscription(ctx, userID)
+}
+
+func (e *EntitlementEngine) GetJobGrace(ctx context.Context, userID string) (*billing.JobGrace, error) {
+	return e.repo.GetJobGrace(ctx, userID)
 }

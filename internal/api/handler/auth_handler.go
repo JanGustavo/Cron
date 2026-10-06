@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/JanGustavo/Cron/internal/domain/billing"
 	"io"
 	"log"
 	"net/http"
@@ -63,14 +64,15 @@ type ProjectResponse struct {
 }
 
 type UserResponse struct {
-	ID                 string              `json:"id"`
-	Email              string              `json:"email"`
-	Plan               string              `json:"plan"`
-	FullName           string              `json:"fullName,omitempty"`
-	CreatedAt          string              `json:"createdAt"`
-	CurrentPeriodEnd   *string             `json:"currentPeriodEnd,omitempty"`
-	CancelAtPeriodEnd  bool                `json:"cancelAtPeriodEnd,omitempty"`
-	Limits             *PlanLimitsResponse `json:"limits,omitempty"`
+	AvatarURL         string              `json:"avatarUrl"`
+	ID                string              `json:"id"`
+	Email             string              `json:"email"`
+	Plan              string              `json:"plan"`
+	FullName          string              `json:"fullName,omitempty"`
+	CreatedAt         string              `json:"createdAt"`
+	CurrentPeriodEnd  *string             `json:"currentPeriodEnd,omitempty"`
+	CancelAtPeriodEnd bool                `json:"cancelAtPeriodEnd,omitempty"`
+	Limits            *PlanLimitsResponse `json:"limits,omitempty"`
 }
 
 type AuthResponse struct {
@@ -421,6 +423,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			Email:             u.Email,
 			Plan:              string(u.Plan),
 			FullName:          u.FullName,
+			AvatarURL:         u.AvatarURL,
 			CreatedAt:         u.CreatedAt.Format(time.RFC3339),
 			CurrentPeriodEnd:  currentPeriodEndStr,
 			CancelAtPeriodEnd: cancelAtPeriodEnd,
@@ -579,6 +582,7 @@ func (h *AuthHandler) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 			Email:             u.Email,
 			Plan:              string(u.Plan),
 			FullName:          u.FullName,
+			AvatarURL:         u.AvatarURL,
 			CreatedAt:         u.CreatedAt.Format(time.RFC3339),
 			CurrentPeriodEnd:  currentPeriodEndStr,
 			CancelAtPeriodEnd: cancelAtPeriodEnd,
@@ -1184,12 +1188,13 @@ func (h *AuthHandler) RotateWebhookSecret(w http.ResponseWriter, r *http.Request
 }
 
 type UpdateProfileRequest struct {
-	FullName           string `json:"full_name"`
-	CPF                string `json:"cpf"`
-	EmailAlertsEnabled bool   `json:"email_alerts_enabled"`
-	DailyDigestEnabled bool   `json:"daily_digest_enabled"`
-	Timezone           string `json:"timezone"`
-	DigestHour         int    `json:"digest_hour"`
+	AvatarURL          *string `json:"avatar_url"`
+	FullName           string  `json:"full_name"`
+	CPF                string  `json:"cpf"`
+	EmailAlertsEnabled bool    `json:"email_alerts_enabled"`
+	DailyDigestEnabled bool    `json:"daily_digest_enabled"`
+	Timezone           string  `json:"timezone"`
+	DigestHour         int     `json:"digest_hour"`
 }
 
 type PlanLimitsResponse struct {
@@ -1202,6 +1207,7 @@ type PlanLimitsResponse struct {
 }
 
 type ProfileResponse struct {
+	AvatarURL          string             `json:"avatarUrl"`
 	ID                 string             `json:"id"`
 	Email              string             `json:"email"`
 	Plan               string             `json:"plan"`
@@ -1217,6 +1223,7 @@ type ProfileResponse struct {
 	Limits             PlanLimitsResponse `json:"limits"`
 	AiQueriesUsed      int                `json:"aiQueriesUsed"`
 	CurrentPeriodEnd   *string            `json:"currentPeriodEnd,omitempty"`
+	JobGrace           *billing.JobGrace  `json:"jobGrace,omitempty"`
 	ClientIP           string             `json:"clientIp"`
 }
 
@@ -1290,11 +1297,18 @@ func (h *AuthHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 		expiryStr = &formatted
 	}
 
+	grace, err := h.entitlementEngine.GetJobGrace(r.Context(), u.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao consultar prazo dos jobs")
+		return
+	}
 	resp := ProfileResponse{
+		JobGrace:           grace,
 		ID:                 u.ID,
 		Email:              u.Email,
-		Plan:               string(u.Plan),
+		Plan:               limits.Code,
 		FullName:           u.FullName,
+		AvatarURL:          u.AvatarURL,
 		CPF:                u.CPF,
 		EmailAlertsEnabled: u.EmailAlertsEnabled,
 		DailyDigestEnabled: u.DailyDigestEnabled,
@@ -1334,6 +1348,15 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.AvatarURL != nil {
+		normalized, err := normalizeAvatarURL(*req.AvatarURL)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		req.AvatarURL = &normalized
+	}
+
 	// Se a timezone estiver vazia, define padrão
 	if req.Timezone == "" {
 		req.Timezone = "America/Sao_Paulo"
@@ -1371,7 +1394,7 @@ func (h *AuthHandler) UpdateProfile(w http.ResponseWriter, r *http.Request) {
 		targetCPF = u.CPF
 	}
 
-	err = h.userRepo.UpdateUserProfile(r.Context(), u.ID, targetName, targetCPF, req.Timezone, req.EmailAlertsEnabled, req.DailyDigestEnabled, req.DigestHour)
+	err = h.userRepo.UpdateUserProfile(r.Context(), u.ID, targetName, targetCPF, req.Timezone, req.EmailAlertsEnabled, req.DailyDigestEnabled, req.DigestHour, req.AvatarURL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Erro ao atualizar dados do perfil")
 		return
@@ -1734,4 +1757,17 @@ func (h *AuthHandler) SwitchProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{
 		"token": jwtToken,
 	})
+}
+
+// Empty removes the photo; omitted preserves it. The server never fetches this URL.
+func normalizeAvatarURL(value string) (string, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", nil
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || len(value) > 2048 || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil {
+		return "", fmt.Errorf("A foto deve usar uma URL HTTPS válida, sem credenciais e com até 2048 caracteres")
+	}
+	return value, nil
 }

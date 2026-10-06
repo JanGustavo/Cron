@@ -15,12 +15,12 @@ import (
 
 // Erros de negócio exportados — o Handler decide o status HTTP de cada um.
 var (
-	ErrJobNotFound            = fmt.Errorf("job não encontrado")
-	ErrJobLimitReached        = fmt.Errorf("limite de jobs do plano atingido")
-	ErrUnauthorized           = fmt.Errorf("job não pertence a este projeto")
-	ErrInvalidSchedule        = fmt.Errorf("schedule inválido")
-	ErrWorkflowsDisabled      = fmt.Errorf("workflows (encadeamento de tarefas) são exclusivos do Plano PRO. Faça o upgrade para utilizar")
-	ErrWebhookAlertsDisabled  = fmt.Errorf("alertas via webhook, Slack ou Discord são exclusivos do Plano PRO. Faça o upgrade para utilizar")
+	ErrJobNotFound           = fmt.Errorf("job não encontrado")
+	ErrJobLimitReached       = fmt.Errorf("limite de jobs do plano atingido")
+	ErrUnauthorized          = fmt.Errorf("job não pertence a este projeto")
+	ErrInvalidSchedule       = fmt.Errorf("schedule inválido")
+	ErrWorkflowsDisabled     = fmt.Errorf("workflows (encadeamento de tarefas) são exclusivos do Plano PRO. Faça o upgrade para utilizar")
+	ErrWebhookAlertsDisabled = fmt.Errorf("alertas via webhook, Slack ou Discord são exclusivos do Plano PRO. Faça o upgrade para utilizar")
 )
 
 type JobService struct {
@@ -170,6 +170,9 @@ func (s *JobService) UpdateStatus(ctx context.Context, id, projectID string, sta
 			return fmt.Errorf("JobService.UpdateStatus: %w", err)
 		}
 		if err := s.jobRepo.ReactivateJob(ctx, id, nextRun); err != nil {
+			if strings.Contains(err.Error(), "limit_reached") {
+				return fmt.Errorf("%w: pause outro job antes de reativar", ErrJobLimitReached)
+			}
 			return fmt.Errorf("JobService.UpdateStatus: %w", err)
 		}
 		return nil

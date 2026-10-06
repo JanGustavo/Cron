@@ -6,11 +6,11 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 
+	_ "github.com/JanGustavo/Cron/docs"
 	"github.com/JanGustavo/Cron/internal/api/handler"
 	"github.com/JanGustavo/Cron/internal/api/middleware"
 	"github.com/JanGustavo/Cron/internal/repository/postgres"
 	"github.com/JanGustavo/Cron/internal/service"
-	_ "github.com/JanGustavo/Cron/docs"
 	httpSwagger "github.com/swaggo/http-swagger/v2"
 )
 
@@ -74,7 +74,6 @@ func New(
 		w.Write([]byte(`{"status":"success","received_at_mock":5002}`))
 	})
 
-
 	// Rotas autenticadas
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.Auth(userRepo, jwtSecret))
@@ -137,17 +136,18 @@ func New(
 		})
 
 		// Rotas de Monitoramento e Regras de Negócio
-r.Route("/v1/monitor", func(r chi.Router) {
-		r.Post("/check", monitorHandler.CheckPayload)
-		r.Get("/keys/{key}", monitorHandler.GetKey)
-		r.Post("/rules", monitorHandler.CreateRule)
-		r.Get("/rules", monitorHandler.ListRules)
-		r.Put("/rules/{id}", monitorHandler.UpdateRule)
-		r.Delete("/rules/{id}", monitorHandler.DeleteRule)
+		r.Route("/v1/monitor", func(r chi.Router) {
+			r.Post("/check", monitorHandler.CheckPayload)
+			r.Post("/preview", monitorHandler.PreviewKey)
+			r.Post("/preview-rule", monitorHandler.PreviewRule)
+			r.Get("/keys/{key}", monitorHandler.GetKey)
+			r.Post("/rules", monitorHandler.CreateRule)
+			r.Get("/rules", monitorHandler.ListRules)
+			r.Put("/rules/{id}", monitorHandler.UpdateRule)
+			r.Delete("/rules/{id}", monitorHandler.DeleteRule)
 		})
 
 	})
 
 	return r
 }
-

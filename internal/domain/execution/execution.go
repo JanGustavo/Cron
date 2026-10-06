@@ -8,14 +8,16 @@ import (
 type Status string
 
 const (
-	StatusSuccess Status = "success"
-	StatusFailed  Status = "failed"
-	StatusTimeout Status = "timeout"
+	StatusValidationFailed Status = "validation_failed"
+	StatusSuccess          Status = "success"
+	StatusFailed           Status = "failed"
+	StatusTimeout          Status = "timeout"
 )
 
 type Execution struct {
 	ID              string          `json:"id"`
 	JobID           string          `json:"job_id"`
+	TransportStatus Status          `json:"transport_status,omitempty"`
 	Status          Status          `json:"status"`
 	HTTPStatus      *int            `json:"http_status,omitempty"`
 	DurationMs      int             `json:"duration_ms"`

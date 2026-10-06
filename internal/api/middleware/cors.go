@@ -12,7 +12,7 @@ func CORS(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 		appEnv := os.Getenv("APP_ENV")
 		frontendURL := os.Getenv("FRONTEND_URL")
-
+		
 		// Em desenvolvimento local, permite localhost/127.0.0.1
 		if appEnv != "production" {
 			if origin != "" {

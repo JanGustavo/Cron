@@ -1,0 +1,288 @@
+[
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "eq",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "eq",
+    "expected": "2",
+    "observed": 1,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "ne",
+    "expected": "2",
+    "observed": 1,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "ne",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "gt",
+    "expected": "0",
+    "observed": 1,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "gt",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "gte",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "gte",
+    "expected": "2",
+    "observed": 1,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "lt",
+    "expected": "2",
+    "observed": 1,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "lt",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "lte",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/id",
+    "value_type": "number",
+    "operator": "lte",
+    "expected": "0",
+    "observed": 1,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/title",
+    "value_type": "string",
+    "operator": "eq",
+    "expected": "delectus aut autem",
+    "observed": "delectus aut autem",
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/title",
+    "value_type": "string",
+    "operator": "eq",
+    "expected": "outro título",
+    "observed": "delectus aut autem",
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/title",
+    "value_type": "string",
+    "operator": "ne",
+    "expected": "outro título",
+    "observed": "delectus aut autem",
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/title",
+    "value_type": "string",
+    "operator": "ne",
+    "expected": "delectus aut autem",
+    "observed": "delectus aut autem",
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/title",
+    "value_type": "string",
+    "operator": "contains",
+    "expected": "aut",
+    "observed": "delectus aut autem",
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/title",
+    "value_type": "string",
+    "operator": "contains",
+    "expected": "inexistente",
+    "observed": "delectus aut autem",
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/completed",
+    "value_type": "boolean",
+    "operator": "eq",
+    "expected": "false",
+    "observed": false,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/completed",
+    "value_type": "boolean",
+    "operator": "eq",
+    "expected": "true",
+    "observed": false,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/completed",
+    "value_type": "boolean",
+    "operator": "ne",
+    "expected": "true",
+    "observed": false,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/completed",
+    "value_type": "boolean",
+    "operator": "ne",
+    "expected": "false",
+    "observed": false,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "field": "/userId",
+    "value_type": "number",
+    "operator": "eq",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "pass",
+    "execution_status": "success",
+    "evaluation_status": "pass",
+    "uiStatus": "pass"
+  },
+  {
+    "field": "/userId",
+    "value_type": "number",
+    "operator": "ne",
+    "expected": "1",
+    "observed": 1,
+    "preview_status": "fail",
+    "execution_status": "validation_failed",
+    "evaluation_status": "fail",
+    "uiStatus": "fail"
+  },
+  {
+    "scope": "synthetic_sample",
+    "field": "/nullable",
+    "value_type": "null",
+    "operator": "eq",
+    "expected": "null",
+    "uiStatus": "pass"
+  },
+  {
+    "scope": "synthetic_sample",
+    "field": "/nullable",
+    "value_type": "null",
+    "operator": "ne",
+    "expected": "null",
+    "uiStatus": "fail"
+  },
+  {
+    "scope": "synthetic_sample",
+    "field": "/nullable",
+    "scenario": "missing field",
+    "uiStatus": "fail"
+  }
+]

@@ -1,0 +1,88 @@
+{
+  "01_pending_checkout": {
+    "active_jobs": 0,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 0
+  },
+  "02_confirmed_upgrade": {
+    "active_jobs": 0,
+    "effective_plan": "pro",
+    "max_jobs": 50,
+    "stored_jobs": 0
+  },
+  "03_PAYMENT_CHARGEBACK_REQUESTED": {
+    "active_jobs": 8,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 8
+  },
+  "03_PAYMENT_OVERDUE": {
+    "active_jobs": 8,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 8
+  },
+  "03_PAYMENT_REFUNDED": {
+    "active_jobs": 8,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 8
+  },
+  "03_SUBSCRIPTION_DELETED": {
+    "active_jobs": 8,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 8
+  },
+  "04_scheduler_after_automatic_downgrade": 8,
+  "05_paid_settings_preserved": {
+    "webhook": true,
+    "workflow": true
+  },
+  "06_admin_downgrade": {
+    "active_jobs": 8,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 8
+  },
+  "07_admin_selection": {
+    "active_oldest_ordinals": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8
+    ],
+    "paused_newest_ordinals": null
+  },
+  "08_free_reactivation": {
+    "active_jobs": 8,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 8
+  },
+  "09_new_job_creation_denied": true,
+  "10_expired_pro": {
+    "active_jobs": 8,
+    "effective_plan": "free",
+    "max_jobs": 5,
+    "stored_jobs": 8
+  },
+  "11_cancel_at_future_period_end": {
+    "active_jobs": 8,
+    "effective_plan": "pro",
+    "max_jobs": 50,
+    "stored_jobs": 8
+  },
+  "12_failed_event_retry_ignored": false,
+  "13_old_payment_after_new_refund": {
+    "active_jobs": 8,
+    "effective_plan": "pro",
+    "max_jobs": 50,
+    "stored_jobs": 8
+  }
+}

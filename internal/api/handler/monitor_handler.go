@@ -1,9 +1,13 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 
@@ -44,7 +48,9 @@ func (h *MonitorHandler) CheckPayload(w http.ResponseWriter, r *http.Request) {
 		Key   string `json:"key"`
 		Value any    `json:"value"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512*1024))
+	decoder.UseNumber()
+	if err := decoder.Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "Corpo de requisição inválido")
 		return
 	}
@@ -126,6 +132,8 @@ func (h *MonitorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var input struct {
+		Mode           string  `json:"mode"`
+		ValueType      string  `json:"value_type"`
 		JobID          *string `json:"job_id"`
 		Name           string  `json:"name"`
 		Key            string  `json:"key"`
@@ -136,7 +144,9 @@ func (h *MonitorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		IsEnabled      *bool   `json:"is_enabled"`
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512*1024))
+	decoder.UseNumber()
+	if err := decoder.Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "Corpo de requisição inválido")
 		return
 	}
@@ -163,6 +173,7 @@ func (h *MonitorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rule := &monitor.MonitorRule{
+		Mode: input.Mode, ValueType: input.ValueType,
 		ProjectID:      proj.ID,
 		JobID:          jobIDPtr,
 		Name:           input.Name,
@@ -260,6 +271,8 @@ func (h *MonitorHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var input struct {
+		Mode           string  `json:"mode"`
+		ValueType      string  `json:"value_type"`
 		Name           string  `json:"name"`
 		Key            string  `json:"key"`
 		Operator       string  `json:"operator"`
@@ -270,7 +283,9 @@ func (h *MonitorHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 		JobID          *string `json:"job_id"` // Opcional: vincular a um job
 	}
 
-	if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 512*1024))
+	decoder.UseNumber()
+	if err := decoder.Decode(&input); err != nil {
 		writeError(w, http.StatusBadRequest, "Corpo de requisição inválido")
 		return
 	}
@@ -292,6 +307,7 @@ func (h *MonitorHandler) UpdateRule(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rule := &monitor.MonitorRule{
+		Mode: input.Mode, ValueType: input.ValueType,
 		ID:             id,
 		ProjectID:      proj.ID,
 		JobID:          input.JobID,
@@ -339,4 +355,88 @@ func formatValueAsString(v any) (string, error) {
 		}
 		return string(data), nil
 	}
+}
+
+// PreviewKey evaluates a typed sample without updating metrics or dispatching alerts.
+func (h *MonitorHandler) PreviewKey(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "Projeto não autenticado")
+		return
+	}
+	var input struct {
+		Key   string          `json:"key"`
+		JobID string          `json:"job_id"`
+		Value json.RawMessage `json:"value"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256*1024))
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Corpo de requisição inválido ou muito grande")
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		writeError(w, http.StatusBadRequest, "Envie somente um documento JSON")
+		return
+	}
+	if strings.TrimSpace(input.Key) == "" || len(input.Key) > 100 || len(input.Value) == 0 {
+		writeError(w, http.StatusBadRequest, "Informe a chave e o valor da amostra")
+		return
+	}
+	if input.JobID != "" {
+		if _, err := uuid.Parse(input.JobID); err != nil {
+			writeError(w, http.StatusBadRequest, "Job inválido")
+			return
+		}
+	}
+	valueDecoder := json.NewDecoder(bytes.NewReader(input.Value))
+	valueDecoder.UseNumber()
+	var value any
+	if err := valueDecoder.Decode(&value); err != nil {
+		writeError(w, http.StatusBadRequest, "Amostra inválida")
+		return
+	}
+	result, err := h.service.PreviewKey(r.Context(), proj.ID, input.JobID, input.Key, value)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Não foi possível avaliar a amostra neste projeto")
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *MonitorHandler) PreviewRule(w http.ResponseWriter, r *http.Request) {
+	proj := middleware.ProjectFromContext(r.Context())
+	if proj == nil {
+		writeError(w, http.StatusUnauthorized, "Projeto não autenticado")
+		return
+	}
+	var input struct {
+		Rule         monitor.MonitorRule `json:"rule"`
+		ResponseBody string              `json:"response_body"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1024*1024))
+	if err := decoder.Decode(&input); err != nil {
+		writeError(w, http.StatusBadRequest, "Amostra inválida ou muito grande")
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		writeError(w, http.StatusBadRequest, "Envie somente um documento JSON")
+		return
+	}
+	if input.Rule.JobID == nil {
+		writeError(w, http.StatusBadRequest, "Selecione um job para testar a condição")
+		return
+	}
+	if _, err := uuid.Parse(*input.Rule.JobID); err != nil {
+		writeError(w, http.StatusBadRequest, "Job inválido")
+		return
+	}
+	input.Rule.ProjectID = proj.ID
+	statuses, err := h.service.PreviewRule(r.Context(), &input.Rule, []byte(input.ResponseBody))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"evaluations": statuses, "passed": monitor.SuccessConditionsPassed(statuses) && !monitor.HasViolation(statuses)})
 }

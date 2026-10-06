@@ -22,7 +22,7 @@ func NewJobRepository(db *sql.DB) *JobRepository {
 
 // Create insere um novo job e retorna o registro completo com ID e timestamps.
 func (r *JobRepository) Create(ctx context.Context, j *job.Job) (*job.Job, error) {
-	headers, _ := json.Marshal(j.Headers) // _ para ignorar erro, 
+	headers, _ := json.Marshal(j.Headers) // _ para ignorar erro,
 	payload, _ := json.Marshal(j.Payload)
 
 	query := `
@@ -74,6 +74,12 @@ func (r *JobRepository) CreateWithLock(ctx context.Context, j *job.Job, userID s
 		return nil, fmt.Errorf("JobRepository.CreateWithLock (advisory_lock): %w", err)
 	}
 
+	if _, err = tx.ExecContext(ctx, `SELECT cronflow_reconcile_account($1::uuid)`, userID); err != nil {
+		return nil, err
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT max_jobs FROM plans WHERE code=cronflow_effective_plan($1::uuid)`, userID).Scan(&maxJobs); err != nil {
+		return nil, err
+	}
 	// Conta quantos jobs o usuário tem atualmente em todos os seus projetos
 	countQuery := `
 		SELECT COUNT(j.id)
@@ -207,6 +213,10 @@ func (r *JobRepository) ListByProject(ctx context.Context, projectID string) ([]
 // FindEligibleToRun é a query mais crítica do sistema — chamada pelo Scheduler a cada 30s.
 // Usa o índice parcial idx_jobs_scheduler para performance.
 func (r *JobRepository) FindEligibleToRun(ctx context.Context, now time.Time) ([]*job.Job, error) {
+	if _, err := r.db.ExecContext(ctx, `SELECT cronflow_reconcile_account(id,$1) FROM users WHERE plan<>'free' OR job_grace_ends_at IS NOT NULL`, now); err != nil {
+		return nil, err
+	}
+
 	query := `
 		SELECT id, project_id, url, http_method, headers, payload, schedule, timezone, next_run_at
 		FROM jobs
@@ -250,29 +260,15 @@ func (r *JobRepository) UpdateNextRun(ctx context.Context, id string, nextRun ti
 
 // UpdateStatus altera o status (active, paused, failing).
 func (r *JobRepository) UpdateStatus(ctx context.Context, id string, status job.Status) error {
-	var err error
 	if status == job.StatusActive {
-		// Só reseta consecutive_failures se o status anterior era paused ou failing
-		_, err = r.db.ExecContext(ctx, `
-			UPDATE jobs SET
-				consecutive_failures = CASE WHEN status IN ('paused', 'failing') THEN 0 ELSE consecutive_failures END,
-				status = $1,
-				updated_at = NOW()
-			WHERE id = $2`,
-			status, id,
-		)
-	} else {
-		_, err = r.db.ExecContext(ctx,
-			`UPDATE jobs SET status = $1, updated_at = NOW() WHERE id = $2`,
-			status, id,
-		)
+		return r.ReactivateJob(ctx, id, time.Now())
 	}
-	return err
+	return r.updateUnderAccountLock(ctx, id, `UPDATE jobs SET status=$1,pause_reason=CASE WHEN $1='paused' THEN 'user' ELSE pause_reason END,updated_at=NOW() WHERE id=$2`, status, id)
 }
 
 // IncrementFailures incrementa o contador e suspende o job ('failing') se >= 4.
 func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error {
-	_, err := r.db.ExecContext(ctx, `
+	return r.updateUnderAccountLock(ctx, id, `
 		UPDATE jobs SET
 			consecutive_failures = LEAST(4, consecutive_failures + 1),
 			status = CASE WHEN consecutive_failures + 1 >= 4 THEN 'failing' ELSE status END,
@@ -280,13 +276,12 @@ func (r *JobRepository) IncrementFailures(ctx context.Context, id string) error 
 			updated_at = NOW()
 		WHERE id = $1`, id,
 	)
-	return err
 }
 
 // ResetFailures limpa o contador após sucesso.
 func (r *JobRepository) ResetFailures(ctx context.Context, id string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE jobs SET consecutive_failures = 0, status = 'active', last_run_at = NOW(), updated_at = NOW() WHERE id = $1`,
+		`UPDATE jobs SET consecutive_failures = 0, last_run_at = NOW(), updated_at = NOW() WHERE id = $1 AND status='active'`,
 		id,
 	)
 	return err
@@ -317,28 +312,6 @@ func (r *JobRepository) CountByProject(ctx context.Context, projectID string) (i
 		projectID,
 	).Scan(&count)
 	return count, err
-}
-
-// PauseExcessJobsForUser mantém apenas os N jobs mais antigos ativos e pausa todos os excedentes ao ocorrer downgrade.
-func (r *JobRepository) PauseExcessJobsForUser(ctx context.Context, userID string, maxAllowed int) (int64, error) {
-	query := `
-		WITH user_active_jobs AS (
-			SELECT j.id,
-			       ROW_NUMBER() OVER (ORDER BY j.created_at ASC) as row_num
-			FROM jobs j
-			JOIN projects p ON j.project_id = p.id
-			WHERE p.user_id = $1 AND j.status = 'active'
-		)
-		UPDATE jobs
-		SET status = 'paused', updated_at = NOW()
-		WHERE id IN (
-			SELECT id FROM user_active_jobs WHERE row_num > $2
-		);`
-	res, err := r.db.ExecContext(ctx, query, userID, maxAllowed)
-	if err != nil {
-		return 0, err
-	}
-	return res.RowsAffected()
 }
 
 // Update atualiza as configurações de um job no banco.
@@ -389,16 +362,51 @@ func (r *JobRepository) Update(ctx context.Context, j *job.Job) error {
 
 // ReactivateJob ativa o job, recalcula next_run_at, reseta falhas consecutivas e limpa last_run_at.
 func (r *JobRepository) ReactivateJob(ctx context.Context, id string, nextRun time.Time) error {
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE jobs SET
-			status = 'active',
-			next_run_at = $1,
-			last_run_at = NULL,
-			consecutive_failures = 0,
-			updated_at = NOW()
-		WHERE id = $2`,
-		nextRun, id,
-	)
-	return err
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var uid string
+	if err = tx.QueryRowContext(ctx, `SELECT p.user_id FROM jobs j JOIN projects p ON p.id=j.project_id WHERE j.id=$1`, id).Scan(&uid); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `SELECT cronflow_reconcile_account($1::uuid)`, uid); err != nil {
+		return err
+	}
+	var allowed, current int
+	var alreadyActive bool
+	if err = tx.QueryRowContext(ctx, `SELECT CASE WHEN u.job_grace_ends_at>NOW() THEN GREATEST(pl.max_jobs,u.job_grace_active_cap) ELSE pl.max_jobs END,
+ (SELECT COUNT(*) FROM jobs j JOIN projects p ON p.id=j.project_id WHERE p.user_id=u.id AND j.status='active'),
+ (SELECT status='active' FROM jobs WHERE id=$2)
+ FROM users u JOIN plans pl ON pl.code=cronflow_effective_plan(u.id) WHERE u.id=$1`, uid, id).Scan(&allowed, &current, &alreadyActive); err != nil {
+		return err
+	}
+	if !alreadyActive && current >= allowed {
+		return fmt.Errorf("limit_reached: máximo de %d jobs ativos; pause outro job antes de reativar", allowed)
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE jobs SET status='active',pause_reason=NULL,next_run_at=$1,last_run_at=NULL,consecutive_failures=0,updated_at=NOW() WHERE id=$2`, nextRun, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
+// All status changes share the creation/reactivation account lock.
+func (r *JobRepository) updateUnderAccountLock(ctx context.Context, id, query string, args ...any) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var uid string
+	if err = tx.QueryRowContext(ctx, `SELECT p.user_id FROM jobs j JOIN projects p ON p.id=j.project_id WHERE j.id=$1`, id).Scan(&uid); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, uid); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, query, args...); err != nil {
+		return err
+	}
+	return tx.Commit()
+}

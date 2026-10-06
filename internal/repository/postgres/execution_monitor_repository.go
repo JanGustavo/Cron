@@ -29,12 +29,12 @@ func (r *ExecutionRepository) CreateWithRuleEvaluations(ctx context.Context, e *
 
 	query := `
 		INSERT INTO executions
-			(job_id, status, http_status, duration_ms, response_body, attempt_number, rule_evaluations)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+			(job_id, status, http_status, duration_ms, response_body, attempt_number, rule_evaluations, transport_status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
 		RETURNING id`
 
 	if err := r.db.QueryRowContext(ctx, query,
-		e.JobID, e.Status, e.HTTPStatus, e.DurationMs, e.ResponseBody, e.AttemptNumber, ruleEvaluations,
+		e.JobID, e.Status, e.HTTPStatus, e.DurationMs, e.ResponseBody, e.AttemptNumber, ruleEvaluations, e.TransportStatus,
 	).Scan(&e.ID); err != nil {
 		return fmt.Errorf("ExecutionRepository.CreateWithRuleEvaluations: %w", err)
 	}

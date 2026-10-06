@@ -189,6 +189,8 @@ func (h *JobHandler) UpdateStatus(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.jobService.UpdateStatus(r.Context(), id, proj.ID, status); err != nil {
 		switch {
+		case errors.Is(err, service.ErrJobLimitReached):
+			writeError(w, http.StatusForbidden, "O plano Free permite cinco jobs ativos. Pause outro job antes de reativar este.")
 		case errors.Is(err, service.ErrJobNotFound):
 			writeError(w, http.StatusNotFound, "Job nao encontrado")
 		default:

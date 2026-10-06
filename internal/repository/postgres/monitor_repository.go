@@ -64,14 +64,14 @@ func (r *MonitorRepository) GetKeyValue(ctx context.Context, projectID, key stri
 // CreateRule insere uma nova regra de monitoramento.
 func (r *MonitorRepository) CreateRule(ctx context.Context, rule *monitor.MonitorRule) (*monitor.MonitorRule, error) {
 	query := `
-		INSERT INTO monitor_rules (project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at;
+		INSERT INTO monitor_rules (project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, mode, value_type)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+		RETURNING id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, mode, value_type, created_at, updated_at;
 	`
 	created := &monitor.MonitorRule{}
 	err := r.db.QueryRowContext(
 		ctx, query,
-		rule.ProjectID, rule.JobID, rule.Name, rule.Key, string(rule.Operator), rule.ThresholdValue, rule.AlertEmail, rule.WebhookURL, rule.IsEnabled,
+		rule.ProjectID, rule.JobID, rule.Name, rule.Key, string(rule.Operator), rule.ThresholdValue, rule.AlertEmail, rule.WebhookURL, rule.IsEnabled, rule.Mode, rule.ValueType,
 	).Scan(
 		&created.ID,
 		&created.ProjectID,
@@ -83,6 +83,7 @@ func (r *MonitorRepository) CreateRule(ctx context.Context, rule *monitor.Monito
 		&created.AlertEmail,
 		&created.WebhookURL,
 		&created.IsEnabled,
+		&created.Mode, &created.ValueType,
 		&created.CreatedAt,
 		&created.UpdatedAt,
 	)
@@ -95,9 +96,9 @@ func (r *MonitorRepository) CreateRule(ctx context.Context, rule *monitor.Monito
 // ListRulesByKey lista todas as regras ativas de um projeto associadas a uma determinada chave.
 func (r *MonitorRepository) ListRulesByKey(ctx context.Context, projectID, key string) ([]*monitor.MonitorRule, error) {
 	query := `
-		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at
+		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, mode, value_type, created_at, updated_at
 		FROM monitor_rules
-		WHERE project_id = $1 AND key = $2 AND is_enabled = true;
+		WHERE project_id = $1 AND key = $2 AND job_id IS NULL AND is_enabled = true;
 	`
 	rows, err := r.db.QueryContext(ctx, query, projectID, key)
 	if err != nil {
@@ -119,6 +120,7 @@ func (r *MonitorRepository) ListRulesByKey(ctx context.Context, projectID, key s
 			&rule.AlertEmail,
 			&rule.WebhookURL,
 			&rule.IsEnabled,
+			&rule.Mode, &rule.ValueType,
 			&rule.CreatedAt,
 			&rule.UpdatedAt,
 		); err != nil {
@@ -126,13 +128,13 @@ func (r *MonitorRepository) ListRulesByKey(ctx context.Context, projectID, key s
 		}
 		rules = append(rules, rule)
 	}
-	return rules, nil
+	return rules, rows.Err()
 }
 
 // ListRulesByJob lista todas as regras ativas vinculadas a um job específico OU globais (job_id IS NULL).
 func (r *MonitorRepository) ListRulesByJob(ctx context.Context, projectID, jobID string) ([]*monitor.MonitorRule, error) {
 	query := `
-		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at
+		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, mode, value_type, created_at, updated_at
 		FROM monitor_rules
 		WHERE project_id = $1 AND (job_id = $2 OR job_id IS NULL) AND is_enabled = true;
 	`
@@ -156,6 +158,7 @@ func (r *MonitorRepository) ListRulesByJob(ctx context.Context, projectID, jobID
 			&rule.AlertEmail,
 			&rule.WebhookURL,
 			&rule.IsEnabled,
+			&rule.Mode, &rule.ValueType,
 			&rule.CreatedAt,
 			&rule.UpdatedAt,
 		); err != nil {
@@ -163,13 +166,13 @@ func (r *MonitorRepository) ListRulesByJob(ctx context.Context, projectID, jobID
 		}
 		rules = append(rules, rule)
 	}
-	return rules, nil
+	return rules, rows.Err()
 }
 
 // ListRulesByProject lista todas as regras de um projeto.
 func (r *MonitorRepository) ListRulesByProject(ctx context.Context, projectID string) ([]*monitor.MonitorRule, error) {
 	query := `
-		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at
+		SELECT id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, mode, value_type, created_at, updated_at
 		FROM monitor_rules
 		WHERE project_id = $1
 		ORDER BY created_at DESC;
@@ -194,6 +197,7 @@ func (r *MonitorRepository) ListRulesByProject(ctx context.Context, projectID st
 			&rule.AlertEmail,
 			&rule.WebhookURL,
 			&rule.IsEnabled,
+			&rule.Mode, &rule.ValueType,
 			&rule.CreatedAt,
 			&rule.UpdatedAt,
 		); err != nil {
@@ -201,7 +205,7 @@ func (r *MonitorRepository) ListRulesByProject(ctx context.Context, projectID st
 		}
 		rules = append(rules, rule)
 	}
-	return rules, nil
+	return rules, rows.Err()
 }
 
 // UpdateRule atualiza uma regra de monitoramento existente.
@@ -216,9 +220,10 @@ func (r *MonitorRepository) UpdateRule(ctx context.Context, rule *monitor.Monito
 			webhook_url = $6,
 			is_enabled = $7,
 			job_id = $8,
+			mode = $11, value_type = $12,
 			updated_at = NOW()
 		WHERE id = $9 AND project_id = $10
-		RETURNING id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, created_at, updated_at;
+		RETURNING id, project_id, job_id, name, key, operator, threshold_value, alert_email, webhook_url, is_enabled, mode, value_type, created_at, updated_at;
 	`
 
 	updated := &monitor.MonitorRule{}
@@ -232,7 +237,7 @@ func (r *MonitorRepository) UpdateRule(ctx context.Context, rule *monitor.Monito
 		rule.IsEnabled,
 		rule.JobID,
 		rule.ID,
-		rule.ProjectID,
+		rule.ProjectID, rule.Mode, rule.ValueType,
 	).Scan(
 		&updated.ID,
 		&updated.ProjectID,
@@ -244,6 +249,7 @@ func (r *MonitorRepository) UpdateRule(ctx context.Context, rule *monitor.Monito
 		&updated.AlertEmail,
 		&updated.WebhookURL,
 		&updated.IsEnabled,
+		&updated.Mode, &updated.ValueType,
 		&updated.CreatedAt,
 		&updated.UpdatedAt,
 	)
@@ -268,4 +274,11 @@ func (r *MonitorRepository) DeleteRule(ctx context.Context, id, projectID string
 		return sql.ErrNoRows
 	}
 	return nil
+}
+
+// JobBelongsToProject prevents linking a rule or preview to another project.
+func (r *MonitorRepository) JobBelongsToProject(ctx context.Context, projectID, jobID string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM jobs WHERE project_id = $1 AND id = $2)`, projectID, jobID).Scan(&exists)
+	return exists, err
 }

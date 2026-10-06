@@ -8,7 +8,7 @@ import (
 // Responsabilidade: representar o dono da conta.
 // NÃO contém senha — autenticação é via API Key, não login/senha no MVP.
 
-type Plan string 
+type Plan string
 
 const (
 	PlanFree Plan = "free"
@@ -20,6 +20,7 @@ type User struct {
 	Email              string
 	PasswordHash       string
 	Plan               Plan
+	AvatarURL          string
 	FullName           string
 	CPF                string
 	EmailAlertsEnabled bool
@@ -32,8 +33,6 @@ type User struct {
 	AiQueriesUsed      int
 	CreatedAt          time.Time
 }
-
-
 
 func (u *User) MaxJobs(freePlanLimit, paidPlanLimit int) int {
 	switch u.Plan {

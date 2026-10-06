@@ -108,8 +108,10 @@ func (h *BillingHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Re
 			}
 		} else {
 			subRecord.BillingProvider = "asaas"
-			subRecord.Status = "pending"
-			subRecord.ProviderSubscriptionID = &asaasResp.ID
+			if subRecord.Status != "active" || (subRecord.CurrentPeriodEnd != nil && !subRecord.CurrentPeriodEnd.After(nowTime)) {
+				subRecord.Status = "pending"
+				subRecord.ProviderSubscriptionID = &asaasResp.ID
+			}
 			subRecord.PlanCode = "pro"
 			subRecord.UpdatedAt = nowTime
 		}
@@ -265,7 +267,7 @@ func (h *BillingHandler) callAsaas(method, path string, body interface{}) ([]byt
 }
 
 type AsaasWebhookPayload struct {
-	Event        string            `json:"event"`
+	Event        string             `json:"event"`
 	Payment      *AsaasPayment      `json:"payment,omitempty"`
 	Subscription *AsaasSubscription `json:"subscription,omitempty"`
 }
@@ -426,9 +428,13 @@ func (h *BillingHandler) ProcessAsaasWebhook(w http.ResponseWriter, r *http.Requ
 			asSub := payloadData.Subscription
 			localSub, err := h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), asSub.ID)
 			if err == nil && localSub != nil {
-				localSub.PlanCode = "free"
-				localSub.Status = "canceled"
-				localSub.CancelAtPeriodEnd = false
+				if localSub.CurrentPeriodEnd != nil && localSub.CurrentPeriodEnd.After(time.Now()) && localSub.Status == "active" {
+					localSub.CancelAtPeriodEnd = true
+				} else {
+					localSub.PlanCode = "free"
+					localSub.Status = "canceled"
+					localSub.CancelAtPeriodEnd = false
+				}
 				processingError = h.entitlementEngine.UpsertSubscription(r.Context(), localSub)
 			}
 		}

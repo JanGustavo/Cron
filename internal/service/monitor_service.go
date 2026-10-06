@@ -4,20 +4,35 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strconv"
 	"strings"
 
 	"github.com/JanGustavo/Cron/internal/domain/monitor"
-	"github.com/JanGustavo/Cron/internal/repository/postgres"
 )
 
+type monitorRepository interface {
+	UpsertKeyValue(context.Context, string, string, string) (*monitor.KeyValue, error)
+	GetKeyValue(context.Context, string, string) (*monitor.KeyValue, error)
+	ListRulesByKey(context.Context, string, string) ([]*monitor.MonitorRule, error)
+	ListRulesByJob(context.Context, string, string) ([]*monitor.MonitorRule, error)
+	ListRulesByProject(context.Context, string) ([]*monitor.MonitorRule, error)
+	CreateRule(context.Context, *monitor.MonitorRule) (*monitor.MonitorRule, error)
+	UpdateRule(context.Context, *monitor.MonitorRule) (*monitor.MonitorRule, error)
+	DeleteRule(context.Context, string, string) error
+	JobBelongsToProject(context.Context, string, string) (bool, error)
+}
+
+type monitorAlerts interface {
+	NotifyKeyViolation(string, string, string, string, string, string, string, string, string)
+	NotifyEmailKeyViolation(string, string, string, string, string, string)
+}
+
 type MonitorService struct {
-	repo         *postgres.MonitorRepository
-	alertService *AlertService
+	repo         monitorRepository
+	alertService monitorAlerts
 	jwtSecret    string
 }
 
-func NewMonitorService(repo *postgres.MonitorRepository, alertService *AlertService, jwtSecret string) *MonitorService {
+func NewMonitorService(repo monitorRepository, alertService monitorAlerts, jwtSecret string) *MonitorService {
 	return &MonitorService{
 		repo:         repo,
 		alertService: alertService,
@@ -64,33 +79,7 @@ func (s *MonitorService) IngestAndEvaluate(ctx context.Context, projectID, key, 
 
 		if violated {
 			result.Violated = true
-
-			// Dispara notificação via Webhook se configurado
-			if r.WebhookURL != nil && *r.WebhookURL != "" {
-				s.alertService.NotifyKeyViolation(
-					*r.WebhookURL,
-					projectID,
-					s.jwtSecret,
-					r.ID,
-					r.Name,
-					key,
-					string(r.Operator),
-					kv.CurrentValue,
-					r.ThresholdValue,
-				)
-			}
-
-			// Dispara e-mail se configurado
-			if r.AlertEmail {
-				s.alertService.NotifyEmailKeyViolation(
-					projectID,
-					r.Name,
-					key,
-					string(r.Operator),
-					kv.CurrentValue,
-					r.ThresholdValue,
-				)
-			}
+			s.notifyViolation(projectID, r, kv.CurrentValue)
 		}
 	}
 
@@ -107,16 +96,9 @@ func (s *MonitorService) GetKeyValue(ctx context.Context, projectID, key string)
 
 // CreateRule cria uma nova regra de monitoramento.
 func (s *MonitorService) CreateRule(ctx context.Context, rule *monitor.MonitorRule) (*monitor.MonitorRule, error) {
-	if rule.Name == "" || rule.Key == "" || rule.ThresholdValue == "" {
-		return nil, fmt.Errorf("campos 'name', 'key' e 'threshold_value' são obrigatórios")
+	if err := s.validateRule(ctx, rule); err != nil {
+		return nil, err
 	}
-	switch rule.Operator {
-	case monitor.OpGt, monitor.OpGte, monitor.OpLt, monitor.OpLte, monitor.OpEq, monitor.OpNe, monitor.OpContains:
-		// Válido
-	default:
-		return nil, fmt.Errorf("operador inválido: %s. Operadores suportados: gt, gte, lt, lte, eq, ne, contains", rule.Operator)
-	}
-
 	return s.repo.CreateRule(ctx, rule)
 }
 
@@ -132,143 +114,132 @@ func (s *MonitorService) DeleteRule(ctx context.Context, id, projectID string) e
 
 // UpdateRule atualiza uma regra de monitoramento existente.
 func (s *MonitorService) UpdateRule(ctx context.Context, rule *monitor.MonitorRule) (*monitor.MonitorRule, error) {
-	if rule.Name == "" || rule.Key == "" || rule.ThresholdValue == "" {
-		return nil, fmt.Errorf("campos 'name', 'key' e 'threshold_value' são obrigatórios")
+	// Older clients omit new fields; never silently remove a success gate.
+	if rule.Mode == "" || rule.ValueType == "" {
+		existing, err := s.repo.ListRulesByProject(ctx, rule.ProjectID)
+		if err != nil {
+			return nil, err
+		}
+		for _, saved := range existing {
+			if saved.ID == rule.ID {
+				if rule.Mode == "" {
+					rule.Mode = saved.Mode
+				}
+				if rule.ValueType == "" {
+					rule.ValueType = saved.ValueType
+				}
+				break
+			}
+		}
 	}
-	switch rule.Operator {
-	case monitor.OpGt, monitor.OpGte, monitor.OpLt, monitor.OpLte, monitor.OpEq, monitor.OpNe, monitor.OpContains:
-		// Válido
-	default:
-		return nil, fmt.Errorf("operador inválido: %s. Operadores suportados: gt, gte, lt, lte, eq, ne, contains", rule.Operator)
+	if err := s.validateRule(ctx, rule); err != nil {
+		return nil, err
 	}
-
 	return s.repo.UpdateRule(ctx, rule)
 }
 
-// EvaluateJobPayload avalia o corpo da resposta HTTP de uma execução de Job contra as regras de monitoramento cadastradas.
-func (s *MonitorService) EvaluateJobPayload(ctx context.Context, projectID, jobID string, responseBody []byte) (bool, []monitor.RuleStatus, error) {
-	if len(responseBody) == 0 {
-		return false, nil, nil
-	}
+// EvaluateJobPayload remains compatible with callers that already have a full response.
+func (s *MonitorService) EvaluateJobPayload(ctx context.Context, projectID, jobID string, body []byte) (bool, []monitor.RuleStatus, error) {
+	return s.EvaluateJobResponse(ctx, projectID, jobID, monitor.Response{Body: body, Received: true})
+}
 
-	// 1. Tenta parsear a resposta como JSON
-	var payloadMap map[string]any
-	if err := json.Unmarshal(responseBody, &payloadMap); err != nil {
-		// Não é um JSON válido — pula avaliação sem gerar erro
-		return false, nil, nil
-	}
-
-	// 2. Busca todas as regras associadas a este job específico ou globais
+func (s *MonitorService) EvaluateJobResponse(ctx context.Context, projectID, jobID string, response monitor.Response) (bool, []monitor.RuleStatus, error) {
 	rules, err := s.repo.ListRulesByJob(ctx, projectID, jobID)
 	if err != nil {
-		return false, nil, fmt.Errorf("MonitorService.EvaluateJobPayload: %w", err)
+		return false, nil, fmt.Errorf("MonitorService.EvaluateJobResponse: %w", err)
 	}
-
-	if len(rules) == 0 {
-		return false, nil, nil
-	}
-
-	hasViolation := false
-	statuses := make([]monitor.RuleStatus, 0, len(rules))
-
-	// 3. Avalia cada regra cadastrada para o Job
-	for _, r := range rules {
-		curVal, found := extractJSONField(payloadMap, r.Key)
-		if !found {
-			// Campo não encontrado na resposta
-			statuses = append(statuses, monitor.RuleStatus{
-				RuleID:   r.ID,
-				RuleName: r.Name,
-				Passed:   false,
-				Message:  fmt.Sprintf("Campo '%s' não encontrado no payload de resposta", r.Key),
-			})
-			continue
-		}
-
-		// Atualiza o valor conhecido da chave no banco
-		_, _ = s.repo.UpsertKeyValue(ctx, projectID, r.Key, curVal)
-
-		violated, msg := evaluateRule(curVal, r.Operator, r.ThresholdValue)
-		status := monitor.RuleStatus{
-			RuleID:   r.ID,
-			RuleName: r.Name,
-			Passed:   !violated,
-			Message:  msg,
-		}
-		statuses = append(statuses, status)
-
-		if violated {
-			hasViolation = true
-
-			if r.WebhookURL != nil && *r.WebhookURL != "" {
-				s.alertService.NotifyKeyViolation(
-					*r.WebhookURL,
-					projectID,
-					s.jwtSecret,
-					r.ID,
-					r.Name,
-					r.Key,
-					string(r.Operator),
-					curVal,
-					r.ThresholdValue,
-				)
+	statuses := monitor.EvaluateResponse(rules, response)
+	for i, rule := range rules {
+		if statuses[i].Status == "fail" {
+			value := statuses[i].Message
+			if len(statuses[i].ObservedValue) > 0 {
+				value = string(statuses[i].ObservedValue)
+				var text string
+				if json.Unmarshal(statuses[i].ObservedValue, &text) == nil {
+					value = text
+				}
 			}
-
-			if r.AlertEmail {
-				s.alertService.NotifyEmailKeyViolation(
-					projectID,
-					r.Name,
-					r.Key,
-					string(r.Operator),
-					curVal,
-					r.ThresholdValue,
-				)
-			}
+			s.notifyViolation(projectID, rule, value)
 		}
 	}
+	return monitor.HasViolation(statuses), statuses, nil
+}
 
-	return hasViolation, statuses, nil
+func (s *MonitorService) notifyViolation(projectID string, rule *monitor.MonitorRule, value string) {
+	if s.alertService == nil {
+		return
+	}
+	if rule.WebhookURL != nil && *rule.WebhookURL != "" {
+		s.alertService.NotifyKeyViolation(*rule.WebhookURL, projectID, s.jwtSecret, rule.ID, rule.Name, rule.Key, string(rule.Operator), value, rule.ThresholdValue)
+	}
+	if rule.AlertEmail {
+		s.alertService.NotifyEmailKeyViolation(projectID, rule.Name, rule.Key, string(rule.Operator), value, rule.ThresholdValue)
+	}
+}
+
+// PreviewKey evaluates configured rules without storing a sample or sending alerts.
+func (s *MonitorService) PreviewKey(ctx context.Context, projectID, jobID, key string, value any) (*monitor.CheckResult, error) {
+	var rules []*monitor.MonitorRule
+	var err error
+	if jobID == "" {
+		rules, err = s.repo.ListRulesByKey(ctx, projectID, key)
+	} else {
+		if err = s.validateJob(ctx, projectID, &jobID); err != nil {
+			return nil, err
+		}
+		rules, err = s.repo.ListRulesByJob(ctx, projectID, jobID)
+	}
+	if err != nil {
+		return nil, err
+	}
+	text, err := formatMonitorValue(value)
+	if err != nil {
+		return nil, err
+	}
+	result := &monitor.CheckResult{Key: key, CurrentValue: text, Rules: make([]monitor.RuleStatus, 0)}
+	for _, rule := range rules {
+		if rule.Key == key {
+			result.Rules = append(result.Rules, monitor.EvaluateValue(rule, value))
+		}
+	}
+	result.Evaluated = len(result.Rules) > 0
+	result.Violated = monitor.HasViolation(result.Rules)
+	return result, nil
+}
+
+func (s *MonitorService) validateJob(ctx context.Context, projectID string, jobID *string) error {
+	if jobID == nil {
+		return nil
+	}
+	exists, err := s.repo.JobBelongsToProject(ctx, projectID, *jobID)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return fmt.Errorf("job não encontrado neste projeto")
+	}
+	return nil
+}
+
+func formatMonitorValue(value any) (string, error) {
+	if text, ok := value.(string); ok {
+		return text, nil
+	}
+	raw, err := json.Marshal(value)
+	return string(raw), err
 }
 
 // extractJSONField extrai o valor de um campo JSON usando notação por pontos (ex: "data.accountsOnline" ou "goroutines_count").
 func extractJSONField(data map[string]any, path string) (string, bool) {
-	parts := strings.Split(path, ".")
-	var current any = data
-
-	for i, part := range parts {
-		m, ok := current.(map[string]any)
-		if !ok {
-			return "", false
-		}
-		val, exists := m[part]
-		if !exists {
-			return "", false
-		}
-		if i == len(parts)-1 {
-			if val == nil {
-				return "", true
-			}
-			switch v := val.(type) {
-			case string:
-				return v, true
-			case float64:
-				if v == float64(int64(v)) {
-					return fmt.Sprintf("%d", int64(v)), true
-				}
-				return fmt.Sprintf("%g", v), true
-			case bool:
-				return fmt.Sprintf("%t", v), true
-			default:
-				bytesVal, err := json.Marshal(v)
-				if err != nil {
-					return "", false
-				}
-				return string(bytesVal), true
-			}
-		}
-		current = val
+	value, found := monitor.ExtractValue(data, path)
+	if !found {
+		return "", false
 	}
-	return "", false
+	if value == nil {
+		return "", true
+	}
+	text, err := formatMonitorValue(value)
+	return text, err == nil
 }
 
 // ListRulesByJob retorna todas as regras ativas de um job ou globais.
@@ -279,66 +250,75 @@ func (s *MonitorService) ListRulesByJob(ctx context.Context, projectID, jobID st
 // evaluateRule verifica se o currentValue viola a regra definida por (operator, threshold).
 // Retorna (true, msg) se houver VIOLAÇÃO da regra.
 func evaluateRule(currentVal string, op monitor.Operator, threshold string) (bool, string) {
-	// Tentamos conversão numérica para operadores matemáticos
-	curNum, errCur := strconv.ParseFloat(currentVal, 64)
-	threshNum, errThresh := strconv.ParseFloat(threshold, 64)
-	isNumeric := (errCur == nil && errThresh == nil)
-
-	switch op {
-	case monitor.OpGt: // Esperado > threshold. Violado se <=
-		if isNumeric {
-			if curNum <= threshNum {
-				return true, fmt.Sprintf("Valor atual (%.2f) não é maior que o limite (%.2f)", curNum, threshNum)
-			}
-		} else {
-			if currentVal <= threshold {
-				return true, fmt.Sprintf("Valor '%s' não é maior que '%s'", currentVal, threshold)
-			}
-		}
-	case monitor.OpGte: // Esperado >= threshold. Violado se <
-		if isNumeric {
-			if curNum < threshNum {
-				return true, fmt.Sprintf("Valor atual (%.2f) é menor que o limite mínimo (%.2f)", curNum, threshNum)
-			}
-		} else {
-			if currentVal < threshold {
-				return true, fmt.Sprintf("Valor '%s' é menor que '%s'", currentVal, threshold)
-			}
-		}
-	case monitor.OpLt: // Esperado < threshold. Violado se >=
-		if isNumeric {
-			if curNum >= threshNum {
-				return true, fmt.Sprintf("Valor atual (%.2f) atingiu ou excedeu o limite máximo (%.2f)", curNum, threshNum)
-			}
-		} else {
-			if currentVal >= threshold {
-				return true, fmt.Sprintf("Valor '%s' é maior ou igual a '%s'", currentVal, threshold)
-			}
-		}
-	case monitor.OpLte: // Esperado <= threshold. Violado se >
-		if isNumeric {
-			if curNum > threshNum {
-				return true, fmt.Sprintf("Valor atual (%.2f) excedeu o limite máximo (%.2f)", curNum, threshNum)
-			}
-		} else {
-			if currentVal > threshold {
-				return true, fmt.Sprintf("Valor '%s' é maior que '%s'", currentVal, threshold)
-			}
-		}
-	case monitor.OpEq: // Esperado == threshold. Violado se !=
-		if currentVal != threshold {
-			return true, fmt.Sprintf("Valor atual '%s' é diferente do esperado '%s'", currentVal, threshold)
-		}
-	case monitor.OpNe: // Esperado != threshold. Violado se ==
-		if currentVal == threshold {
-			return true, fmt.Sprintf("Valor atual '%s' é igual ao valor proibido '%s'", currentVal, threshold)
-		}
-	case monitor.OpContains: // Esperado conter substring. Violado se não conter
-		if !strings.Contains(currentVal, threshold) {
-			return true, fmt.Sprintf("Valor atual '%s' não contém '%s'", currentVal, threshold)
-		}
+	var value any = currentVal
+	if monitor.NumericOperator(op) {
+		value = json.Number(currentVal)
 	}
-
-	return false, ""
+	status := monitor.EvaluateValue(&monitor.MonitorRule{Operator: op, ThresholdValue: threshold}, value)
+	return !status.Passed, status.Message
 }
 
+func (s *MonitorService) validateRule(ctx context.Context, rule *monitor.MonitorRule) error {
+	if rule.Mode == "" {
+		rule.Mode = monitor.ModeObserve
+	}
+	if rule.ValueType == "" {
+		rule.ValueType = "legacy"
+	}
+	if strings.TrimSpace(rule.Name) == "" || len(rule.Name) > 100 || strings.TrimSpace(rule.Key) == "" || len(rule.Key) > 100 {
+		return fmt.Errorf("nome e campo são obrigatórios e devem ter até 100 caracteres")
+	}
+	if rule.Mode != monitor.ModeObserve && rule.Mode != monitor.ModeRequireSuccess {
+		return fmt.Errorf("intenção de condição inválida")
+	}
+	if rule.Mode == monitor.ModeRequireSuccess && rule.JobID == nil {
+		return fmt.Errorf("condição de sucesso precisa estar vinculada a um job")
+	}
+	switch rule.Operator {
+	case monitor.OpGt, monitor.OpGte, monitor.OpLt, monitor.OpLte, monitor.OpEq, monitor.OpNe, monitor.OpContains:
+	default:
+		return fmt.Errorf("operador inválido")
+	}
+	switch rule.ValueType {
+	case "legacy":
+		if rule.ThresholdValue == "" {
+			return fmt.Errorf("valor esperado obrigatório")
+		}
+	case "number":
+		if rule.Operator == monitor.OpContains || !monitor.ValidNumericThreshold(rule.ThresholdValue) {
+			return fmt.Errorf("informe um número válido e um operador numérico")
+		}
+	case "boolean":
+		if (rule.Operator != monitor.OpEq && rule.Operator != monitor.OpNe) || (rule.ThresholdValue != "true" && rule.ThresholdValue != "false") {
+			return fmt.Errorf("condição booleana exige igualdade/diferença e true ou false")
+		}
+	case "null":
+		if (rule.Operator != monitor.OpEq && rule.Operator != monitor.OpNe) || rule.ThresholdValue != "null" {
+			return fmt.Errorf("condição null exige igualdade/diferença e valor null")
+		}
+	case "string":
+		if monitor.NumericOperator(rule.Operator) {
+			return fmt.Errorf("use operadores de texto para campos de texto")
+		}
+	default:
+		return fmt.Errorf("tipo esperado inválido")
+	}
+	if monitor.NumericOperator(rule.Operator) && !monitor.ValidNumericThreshold(rule.ThresholdValue) {
+		return fmt.Errorf("o limite deve ser um número JSON válido")
+	}
+	return s.validateJob(ctx, rule.ProjectID, rule.JobID)
+}
+
+// PreviewRule evaluates a candidate against a sample without saving or alerting.
+func (s *MonitorService) PreviewRule(ctx context.Context, rule *monitor.MonitorRule, body []byte) ([]monitor.RuleStatus, error) {
+	if rule.Name == "" {
+		rule.Name = "Prévia"
+	}
+	if err := s.validateRule(ctx, rule); err != nil {
+		return nil, err
+	}
+	if len(body) > 256*1024 {
+		return nil, fmt.Errorf("amostra excede 256 KiB")
+	}
+	return monitor.EvaluateResponse([]*monitor.MonitorRule{rule}, monitor.Response{Received: true, Body: body}), nil
+}

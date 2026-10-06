@@ -18,6 +18,9 @@ func NewBillingRepository(db *sql.DB) *BillingRepository {
 
 // GetSubscription retrieves subscription details for a given user.
 func (r *BillingRepository) GetSubscription(ctx context.Context, userID string) (*billing.Subscription, error) {
+	if _, err := r.db.ExecContext(ctx, `SELECT cronflow_reconcile_account($1::uuid)`, userID); err != nil {
+		return nil, err
+	}
 	query := `
 		SELECT id, user_id, plan_code, status, billing_provider, 
 		       provider_customer_id, provider_subscription_id, 
@@ -49,13 +52,6 @@ func (r *BillingRepository) GetSubscription(ctx context.Context, userID string) 
 			return nil, nil // No subscription is fine, free plan applies
 		}
 		return nil, err
-	}
-
-	var userPlan string
-	_ = r.db.QueryRowContext(ctx, `SELECT COALESCE(plan, 'free') FROM users WHERE id = $1`, userID).Scan(&userPlan)
-	if userPlan == "pro" {
-		sub.PlanCode = "pro"
-		sub.Status = "active"
 	}
 
 	if custID.Valid {
@@ -239,14 +235,7 @@ func (r *BillingRepository) UpsertSubscription(ctx context.Context, sub *billing
 		return err
 	}
 
-	// Sincroniza a coluna 'plan' do usuário de acordo com o status da assinatura
-	userPlan := "free"
-	if sub.Status == "active" || sub.Status == "trialing" {
-		userPlan = sub.PlanCode
-	}
-
-	_, err = r.db.ExecContext(ctx, "UPDATE users SET plan = $1 WHERE id = $2", userPlan, sub.UserID)
-	return err
+	return nil
 }
 
 // GetSubscriptionByProviderSubID retrieves a subscription record using the Stripe subscription ID.

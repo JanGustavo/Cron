@@ -10,14 +10,19 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strings"
 	"time"
+	"unicode/utf8"
 )
+
+const MaxEvaluationBodySize = 256 * 1024
 
 // Result é o resultado de uma execução HTTP.
 type Result struct {
-	StatusCode int
-	Body       string // truncado em 2KB
-	DurationMs int
+	StatusCode   int
+	Body         string // full response within MaxEvaluationBodySize
+	CaptureError string // body_too_large or body_read_error
+	DurationMs   int
 }
 
 // isPrivateIP verifica se o IP pertence a redes locais, privadas ou reservadas.
@@ -172,15 +177,12 @@ func Execute(ctx context.Context, method, url string, headers map[string]string,
 	}
 	defer resp.Body.Close()
 
-	durationMs := int(time.Since(start).Milliseconds())
-
-	// Lê e trunca o body em 2KB
-	rawBody, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024))
-
+	rawBody, captureError := readResponseBody(resp.Body)
 	return &Result{
-		StatusCode: resp.StatusCode,
-		Body:       string(rawBody),
-		DurationMs: durationMs,
+		StatusCode:   resp.StatusCode,
+		Body:         string(rawBody),
+		DurationMs:   int(time.Since(start).Milliseconds()),
+		CaptureError: captureError,
 	}, nil
 }
 
@@ -230,4 +232,29 @@ func ValidateURL(ctx context.Context, rawURL string) error {
 
 func allowLocalWebhooks() bool {
 	return os.Getenv("APP_ENV") != "production" && os.Getenv("ALLOW_LOCAL_WEBHOOKS") == "true"
+}
+
+// readResponseBody probes one extra byte; a fragment is never treated as complete.
+func readResponseBody(reader io.Reader) ([]byte, string) {
+	body, err := io.ReadAll(io.LimitReader(reader, MaxEvaluationBodySize+1))
+	if err != nil {
+		return body, "body_read_error"
+	}
+	if len(body) > MaxEvaluationBodySize {
+		return body[:MaxEvaluationBodySize], "body_too_large"
+	}
+	return body, ""
+}
+
+// ResponsePreview limits storage independently of evaluation and preserves UTF-8.
+func ResponsePreview(body string) string {
+	body = strings.ToValidUTF8(body, "�")
+	if len(body) <= 2*1024 {
+		return body
+	}
+	preview := body[:2*1024]
+	for len(preview) > 0 && !utf8.ValidString(preview) {
+		preview = preview[:len(preview)-1]
+	}
+	return preview
 }

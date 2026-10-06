@@ -41,6 +41,10 @@ type alertPayload struct {
 }
 
 func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastStatus int, lastBody string, projectID, jwtSecret string) {
+	if !s.projectAlertsAllowed(projectID) {
+		return
+	}
+
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
@@ -121,7 +125,7 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 		// Assinatura de segurança de webhook (Stripe/Svix)
 		if projectID != "" && len(payloadBytes) > 0 {
 			timestamp := time.Now().Unix()
-			
+
 			// Resolve o segredo: prioriza o customizado do banco se existir, cai no fallback de segurança
 			secret := ""
 			if s.db != nil {
@@ -134,7 +138,7 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 			if secret == "" {
 				secret = auth.ComputeWebhookSecret(projectID, jwtSecret)
 			}
-			
+
 			sig := auth.SignWebhookPayload(payloadBytes, timestamp, secret)
 
 			req.Header.Set("X-CronFlow-Timestamp", strconv.FormatInt(timestamp, 10))
@@ -156,6 +160,10 @@ func (s *AlertService) Notify(webhookURL, jobID, jobName string, failures, lastS
 
 // NotifyEmail envia e-mail imediato de alerta de falha de job para usuários Paid/PRO elegíveis.
 func (s *AlertService) NotifyEmail(jobID, jobName string, failures, lastStatus int, lastBody string, projectID string) {
+	if !s.projectAlertsAllowed(projectID) {
+		return
+	}
+
 	if s.mailService == nil || projectID == "" {
 		return
 	}
@@ -300,6 +308,10 @@ type monitorRuleViolationPayload struct {
 
 // NotifyKeyViolation envia notificação de webhook quando uma regra de monitoramento é violada.
 func (s *AlertService) NotifyKeyViolation(webhookURL, projectID, jwtSecret, ruleID, ruleName, key, operator, currentValue, thresholdValue string) {
+	if !s.projectAlertsAllowed(projectID) {
+		return
+	}
+
 	if webhookURL == "" {
 		return
 	}
@@ -401,6 +413,10 @@ func (s *AlertService) NotifyKeyViolation(webhookURL, projectID, jwtSecret, rule
 
 // NotifyEmailKeyViolation envia e-mail de alerta para regras de monitoramento violadas.
 func (s *AlertService) NotifyEmailKeyViolation(projectID, ruleName, key, operator, currentValue, thresholdValue string) {
+	if !s.projectAlertsAllowed(projectID) {
+		return
+	}
+
 	if s.mailService == nil || projectID == "" {
 		return
 	}
@@ -437,3 +453,14 @@ func (s *AlertService) NotifyEmailKeyViolation(projectID, ruleName, key, operato
 	}()
 }
 
+// Grace extends ordinary jobs only, never paid notification channels.
+func (s *AlertService) projectAlertsAllowed(projectID string) bool {
+	if s.db == nil || projectID == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	var allowed bool
+	err := s.db.QueryRowContext(ctx, `SELECT pl.alerts_webhooks_enabled FROM projects p JOIN plans pl ON pl.code=cronflow_effective_plan(p.user_id) WHERE p.id=$1`, projectID).Scan(&allowed)
+	return err == nil && allowed
+}

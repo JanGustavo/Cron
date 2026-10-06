@@ -1,6 +1,9 @@
 package monitor
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 type Operator string
 
@@ -14,7 +17,12 @@ const (
 	OpContains Operator = "contains" // Contém texto
 )
 
+const ModeObserve = "observe"
+const ModeRequireSuccess = "require_success"
+
 type MonitorRule struct {
+	Mode           string    `json:"mode"`
+	ValueType      string    `json:"value_type"`
 	ID             string    `json:"id"`
 	ProjectID      string    `json:"project_id"`
 	JobID          *string   `json:"job_id,omitempty"` // Opcional: vincula a um job específico
@@ -45,8 +53,17 @@ type CheckResult struct {
 }
 
 type RuleStatus struct {
-	RuleID   string `json:"rule_id"`
-	RuleName string `json:"rule_name"`
-	Passed   bool   `json:"passed"`
-	Message  string `json:"message,omitempty"`
+	Mode              string          `json:"mode,omitempty"`
+	ValueType         string          `json:"value_type,omitempty"`
+	RuleID            string          `json:"rule_id"`
+	RuleName          string          `json:"rule_name"`
+	Passed            bool            `json:"passed"`
+	Message           string          `json:"message,omitempty"`
+	Status            string          `json:"status,omitempty"`
+	Reason            string          `json:"reason,omitempty"`
+	Key               string          `json:"key,omitempty"`
+	Operator          Operator        `json:"operator,omitempty"`
+	ExpectedValue     string          `json:"expected_value,omitempty"`
+	ObservedValue     json.RawMessage `json:"observed_value,omitempty"`
+	ObservedValueText string          `json:"observed_value_text,omitempty"`
 }

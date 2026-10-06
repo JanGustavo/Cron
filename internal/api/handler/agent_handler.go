@@ -28,6 +28,7 @@ import (
 )
 
 type contextKey string
+
 const (
 	userIDKey   contextKey = "userID"
 	clientIPKey contextKey = "clientIP"
@@ -176,16 +177,16 @@ type GeminiCandidate struct {
 
 // OpenAI/Groq Fallback Types
 type OpenAIMessage struct {
-	Role       string            `json:"role"`
-	Content    string            `json:"content,omitempty"`
-	ToolCalls  []OpenAIToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string            `json:"tool_call_id,omitempty"`
+	Role       string           `json:"role"`
+	Content    string           `json:"content,omitempty"`
+	ToolCalls  []OpenAIToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string           `json:"tool_call_id,omitempty"`
 }
 
 type OpenAIToolCall struct {
-	ID       string           `json:"id"`
-	Type     string           `json:"type"`
-	Function OpenAIFunction   `json:"function"`
+	ID       string         `json:"id"`
+	Type     string         `json:"type"`
+	Function OpenAIFunction `json:"function"`
 }
 
 type OpenAIFunction struct {
@@ -365,8 +366,17 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	grace, err := h.jobService.EntitlementEngine.GetJobGrace(r.Context(), proj.UserID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Erro ao consultar plano")
+		return
+	}
+	if limits.Code == "free" && grace.ProEnded {
+		writeError(w, http.StatusPaymentRequired, "Seu acesso Pro encerrou. Renove para continuar usando o chat da IA.")
+		return
+	}
 	u, _ := h.userRepo.FindUserByProjectID(r.Context(), proj.ID)
-	isProUser := u != nil && string(u.Plan) == "pro"
+	isProUser := limits.Code == "pro"
 
 	var freeAiUsed int
 	if !isProUser && !limits.WorkflowsEnabled {
@@ -439,7 +449,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 
 	// Prepare the conversation history
 	history := input.History
-	
+
 	// Add user's new message to the history
 	history = append(history, GeminiMessage{
 		Role: "user",
@@ -582,7 +592,7 @@ func (h *AgentHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		}
 
 		candidate := geminiResp.Candidates[0]
-		
+
 		// Append model's response to history
 		history = append(history, candidate.Content)
 
@@ -1122,8 +1132,6 @@ func marshalArgs(args map[string]any) string {
 	return string(b)
 }
 
-
-
 type NormalizedCreateJob struct {
 	Name            string            `json:"name"`
 	Schedule        string            `json:"schedule"`
@@ -1142,7 +1150,7 @@ func normalizeCreateJobArgs(args map[string]any) (NormalizedCreateJob, error) {
 	name, _ := args["name"].(string)
 	schedule, _ := args["schedule"].(string)
 	url, _ := args["url"].(string)
-	
+
 	httpMethod, _ := args["httpMethod"].(string)
 	if httpMethod == "" {
 		httpMethod = "POST"
@@ -1325,5 +1333,3 @@ func generateToken() string {
 	}
 	return "CF-" + string(b)
 }
-
-

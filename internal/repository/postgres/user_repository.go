@@ -17,11 +17,11 @@ import (
 //   - FindByEmail(ctx, email)
 //   - FindProjectByKeyHash(ctx, hash)  ← autenticação
 
-type UserRepository struct{ 
+type UserRepository struct {
 	db *sql.DB
 }
 
-func NewUserRepository(db *sql.DB) *UserRepository{
+func NewUserRepository(db *sql.DB) *UserRepository {
 	return &UserRepository{db: db}
 }
 
@@ -34,9 +34,9 @@ func (r *UserRepository) GetDB() *sql.DB {
 func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO users (email) VALUES ($1) RETURNING id, email, plan, COALESCE(password_hash, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at`,
+		`INSERT INTO users (email) VALUES ($1) RETURNING id, email, plan, COALESCE(password_hash, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at, COALESCE(avatar_url, '')`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt, &u.AvatarURL)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.CreateUser: %w", err)
 	}
@@ -47,9 +47,9 @@ func (r *UserRepository) CreateUser(ctx context.Context, email string) (*user.Us
 func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, passwordHash, fullName, cpf string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`INSERT INTO users (email, password_hash, full_name, cpf) VALUES ($1, $2, $3, NULLIF($4, '')) RETURNING id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at`,
+		`INSERT INTO users (email, password_hash, full_name, cpf) VALUES ($1, $2, $3, NULLIF($4, '')) RETURNING id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at, COALESCE(avatar_url, '')`,
 		email, passwordHash, fullName, cpf,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt, &u.AvatarURL)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.CreateUserWithPassword: %w", err)
 	}
@@ -60,9 +60,9 @@ func (r *UserRepository) CreateUserWithPassword(ctx context.Context, email, pass
 func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at FROM users WHERE email = $1 LIMIT 1`,
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at, COALESCE(avatar_url, '') FROM users WHERE email = $1 LIMIT 1`,
 		email,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt, &u.AvatarURL)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -76,9 +76,9 @@ func (r *UserRepository) FindByEmail(ctx context.Context, email string) (*user.U
 func (r *UserRepository) FindByCPF(ctx context.Context, cpf string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at FROM users WHERE cpf = $1 LIMIT 1`,
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, created_at, COALESCE(avatar_url, '') FROM users WHERE cpf = $1 LIMIT 1`,
 		cpf,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.CreatedAt, &u.AvatarURL)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -185,12 +185,12 @@ func (r *UserRepository) FindProjectByKeyHash(ctx context.Context, keyHash strin
 func (r *UserRepository) FindUserByProjectID(ctx context.Context, projectID string) (*user.User, error) {
 	u := &user.User{}
 	err := r.db.QueryRowContext(ctx, `
-		SELECT u.id, u.email, u.plan, COALESCE(u.password_hash, ''), COALESCE(u.full_name, ''), COALESCE(u.cpf, ''), u.email_alerts_enabled, u.daily_digest_enabled, COALESCE(u.timezone, 'America/Sao_Paulo'), COALESCE(u.digest_hour, 18), u.last_digest_sent_at, u.is_verified, COALESCE(u.role, 'user'), COALESCE(u.ai_queries_used, 0), u.created_at
+		SELECT u.id, u.email, u.plan, COALESCE(u.password_hash, ''), COALESCE(u.full_name, ''), COALESCE(u.cpf, ''), u.email_alerts_enabled, u.daily_digest_enabled, COALESCE(u.timezone, 'America/Sao_Paulo'), COALESCE(u.digest_hour, 18), u.last_digest_sent_at, u.is_verified, COALESCE(u.role, 'user'), COALESCE(u.ai_queries_used, 0), u.created_at, COALESCE(u.avatar_url, '')
 		FROM users u
 		INNER JOIN projects p ON p.user_id = u.id
 		WHERE p.id = $1`,
 		projectID,
-	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.AiQueriesUsed, &u.CreatedAt)
+	).Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.AiQueriesUsed, &u.CreatedAt, &u.AvatarURL)
 
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -265,12 +265,12 @@ func (r *UserRepository) UpdatePassword(ctx context.Context, userID, newPassword
 }
 
 // UpdateUserProfile atualiza dados cadastrais e preferências do usuário.
-func (r *UserRepository) UpdateUserProfile(ctx context.Context, userID, fullName, cpf, timezone string, emailAlerts, dailyDigest bool, digestHour int) error {
+func (r *UserRepository) UpdateUserProfile(ctx context.Context, userID, fullName, cpf, timezone string, emailAlerts, dailyDigest bool, digestHour int, avatarURL *string) error {
 	_, err := r.db.ExecContext(ctx,
-		`UPDATE users 
-		 SET full_name = $1, cpf = $2, timezone = $3, email_alerts_enabled = $4, daily_digest_enabled = $5, digest_hour = $6 
+		`UPDATE users
+		 SET full_name = $1, cpf = $2, timezone = $3, email_alerts_enabled = $4, daily_digest_enabled = $5, digest_hour = $6, avatar_url = CASE WHEN $8::text IS NULL THEN avatar_url ELSE NULLIF($8, '') END
 		 WHERE id = $7`,
-		fullName, cpf, timezone, emailAlerts, dailyDigest, digestHour, userID,
+		fullName, cpf, timezone, emailAlerts, dailyDigest, digestHour, userID, avatarURL,
 	)
 	if err != nil {
 		return fmt.Errorf("UserRepository.UpdateUserProfile: %w", err)
@@ -305,8 +305,8 @@ func (r *UserRepository) UpdateLastDigestSentAt(ctx context.Context, userID stri
 // FindUsersEligibleForDigest busca usuários com daily_digest_enabled ativado.
 func (r *UserRepository) FindUsersEligibleForDigest(ctx context.Context) ([]*user.User, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, created_at 
-		 FROM users 
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, created_at, COALESCE(avatar_url, '')
+		 FROM users
 		 WHERE daily_digest_enabled = TRUE`)
 	if err != nil {
 		return nil, fmt.Errorf("UserRepository.FindUsersEligibleForDigest: %w", err)
@@ -316,7 +316,7 @@ func (r *UserRepository) FindUsersEligibleForDigest(ctx context.Context) ([]*use
 	var users []*user.User
 	for rows.Next() {
 		u := &user.User{}
-		err := rows.Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.CreatedAt)
+		err := rows.Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.CreatedAt, &u.AvatarURL)
 		if err != nil {
 			return nil, fmt.Errorf("UserRepository.FindUsersEligibleForDigest scan: %w", err)
 		}
@@ -377,8 +377,8 @@ func (r *UserRepository) UpdateVerified(ctx context.Context, userID string, veri
 // ListAllUsersForAdmin lista todos os usuários cadastrados para a área administrativa.
 func (r *UserRepository) ListAllUsersForAdmin(ctx context.Context) ([]*user.User, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, COALESCE(role, 'user'), COALESCE(ai_queries_used, 0), created_at 
-		 FROM users 
+		`SELECT id, email, plan, COALESCE(password_hash, ''), COALESCE(full_name, ''), COALESCE(cpf, ''), email_alerts_enabled, daily_digest_enabled, COALESCE(timezone, 'America/Sao_Paulo'), COALESCE(digest_hour, 18), last_digest_sent_at, is_verified, COALESCE(role, 'user'), COALESCE(ai_queries_used, 0), created_at, COALESCE(avatar_url, '')
+		 FROM users
 		 ORDER BY created_at DESC`,
 	)
 	if err != nil {
@@ -389,7 +389,7 @@ func (r *UserRepository) ListAllUsersForAdmin(ctx context.Context) ([]*user.User
 	var users []*user.User
 	for rows.Next() {
 		u := &user.User{}
-		err := rows.Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.AiQueriesUsed, &u.CreatedAt)
+		err := rows.Scan(&u.ID, &u.Email, &u.Plan, &u.PasswordHash, &u.FullName, &u.CPF, &u.EmailAlertsEnabled, &u.DailyDigestEnabled, &u.Timezone, &u.DigestHour, &u.LastDigestSentAt, &u.IsVerified, &u.Role, &u.AiQueriesUsed, &u.CreatedAt, &u.AvatarURL)
 		if err != nil {
 			return nil, fmt.Errorf("UserRepository.ListAllUsersForAdmin scan: %w", err)
 		}
@@ -422,54 +422,11 @@ func (r *UserRepository) ResetAIQueriesUsed(ctx context.Context, userID string) 
 
 // UpdateUserPlanByAdmin altera o plano de um usuário diretamente pela administração e atualiza a assinatura.
 func (r *UserRepository) UpdateUserPlanByAdmin(ctx context.Context, userID, newPlan string) error {
-	_, err := r.db.ExecContext(ctx,
-		`UPDATE users SET plan = $1 WHERE id = $2`,
-		newPlan, userID,
-	)
-	if err != nil {
-		return fmt.Errorf("UserRepository.UpdateUserPlanByAdmin: %w", err)
-	}
-
-	if newPlan == "pro" {
-		_, _ = r.db.ExecContext(ctx, `
-			INSERT INTO subscriptions (user_id, plan_code, status, cancel_at_period_end, current_period_start, current_period_end, updated_at)
-			VALUES ($1, 'pro', 'active', false, NOW(), NOW() + INTERVAL '30 days', NOW())
-			ON CONFLICT (user_id) DO UPDATE SET
-				plan_code = 'pro',
-				status = 'active',
-				cancel_at_period_end = false,
-				current_period_end = NOW() + INTERVAL '30 days',
-				updated_at = NOW()`,
-			userID,
-		)
-	} else {
-		_, _ = r.db.ExecContext(ctx, `
-			INSERT INTO subscriptions (user_id, plan_code, status, cancel_at_period_end, updated_at)
-			VALUES ($1, 'free', 'active', false, NOW())
-			ON CONFLICT (user_id) DO UPDATE SET
-				plan_code = 'free',
-				status = 'active',
-				cancel_at_period_end = false,
-				updated_at = NOW()`,
-			userID,
-		)
-		// Pausa jobs excedentes (> 5) ao reverter para Free
-		_, _ = r.db.ExecContext(ctx, `
-			WITH user_active_jobs AS (
-				SELECT j.id,
-				       ROW_NUMBER() OVER (ORDER BY j.created_at ASC) as row_num
-				FROM jobs j
-				JOIN projects p ON j.project_id = p.id
-				WHERE p.user_id = $1 AND j.status = 'active'
-			)
-			UPDATE jobs
-			SET status = 'paused', updated_at = NOW()
-			WHERE id IN (
-				SELECT id FROM user_active_jobs WHERE row_num > 5
-			);`, userID)
-	}
-
-	return nil
+	// Subscription trigger applies exactly the same policy as provider events.
+	_, err := r.db.ExecContext(ctx, `INSERT INTO subscriptions(user_id,plan_code,status,billing_provider,current_period_start,current_period_end,cancel_at_period_end)
+ VALUES($1,$2::varchar,'active','manual',NOW(),CASE WHEN $2::varchar='pro' THEN NOW()+INTERVAL '30 days' ELSE NULL END,false)
+ ON CONFLICT(user_id) DO UPDATE SET plan_code=EXCLUDED.plan_code,status='active',billing_provider='manual',current_period_start=EXCLUDED.current_period_start,current_period_end=EXCLUDED.current_period_end,cancel_at_period_end=false,updated_at=NOW()`, userID, newPlan)
+	return err
 }
 
 // CountTotalPlatformJobs conta o total de jobs ativos na plataforma inteira.
