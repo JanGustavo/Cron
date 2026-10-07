@@ -56,11 +56,12 @@ jobs:
         env:
           PGPASSWORD: postgres
         run: |
-          cat migrations/*.up.sql | psql -h localhost -U postgres -d cronflow_test
+          cat migrations/*.up.sql | psql -v ON_ERROR_STOP=1 -h localhost -U postgres -d cronflow_test
 
       - name: Run Go tests
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/cronflow_test?sslmode=disable
+          CRONFLOW_MONITOR_TEST_DSN: postgres://postgres:postgres@localhost:5432/cronflow_test?sslmode=disable
           REDIS_URL: redis://localhost:6379
           JWT_SECRET: test_jwt_secret_must_be_long_enough_32_bytes_long_secret
         run: go test -v -race ./cmd/... ./internal/... ./pkg/...

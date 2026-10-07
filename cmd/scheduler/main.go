@@ -52,5 +52,9 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	if cfg.BillingProvider == "asaas" && cfg.AsaasAPIKey != "" {
+		sync := service.NewAsaasReconciler(postgres.NewBillingRepository(db), service.NewAsaasClient(cfg.AsaasAPIKey, cfg.AppEnv == "production"))
+		go sync.Run(ctx)
+	}
 	sched.Run(ctx)
 }

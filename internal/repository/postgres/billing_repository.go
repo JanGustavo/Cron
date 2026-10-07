@@ -113,6 +113,7 @@ func (r *BillingRepository) CreateBillingEvent(ctx context.Context, event *billi
 	query := `
 		INSERT INTO billing_events (provider, provider_event_id, event_type, user_id, payload, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6)
+ ON CONFLICT(provider,provider_event_id) DO UPDATE SET provider_event_id=EXCLUDED.provider_event_id
 		RETURNING id
 	`
 	var userIDVal sql.NullString
@@ -170,7 +171,9 @@ func (r *BillingRepository) FindBillingEventByProviderID(ctx context.Context, pr
 func (r *BillingRepository) MarkBillingEventProcessed(ctx context.Context, id string, errStr *string) error {
 	query := `
 		UPDATE billing_events
-		SET processed_at = NOW(), processing_error = $2
+		SET processed_at = NOW(), processing_error = $2,
+ processing_attempts=CASE WHEN $2::text IS NULL THEN processing_attempts ELSE processing_attempts+1 END,
+ next_retry_at=CASE WHEN $2::text IS NULL THEN NULL ELSE NOW()+make_interval(secs=>LEAST(3600,60*power(2,LEAST(processing_attempts,6)))::double precision) END
 		WHERE id = $1
 	`
 	var errVal sql.NullString
@@ -178,12 +181,23 @@ func (r *BillingRepository) MarkBillingEventProcessed(ctx context.Context, id st
 		errVal = sql.NullString{String: *errStr, Valid: true}
 	}
 
+	if errVal.Valid {
+		query += ` AND (processed_at IS NULL OR processing_error IS NOT NULL)`
+	}
 	_, err := r.db.ExecContext(ctx, query, id, errVal)
 	return err
 }
 
 // UpsertSubscription inserts or updates a subscription record in the database.
 func (r *BillingRepository) UpsertSubscription(ctx context.Context, sub *billing.Subscription) error {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(hashtext($1))`, sub.UserID); err != nil {
+		return err
+	}
 	query := `
 		INSERT INTO subscriptions (
 			user_id, plan_code, status, billing_provider, 
@@ -220,7 +234,7 @@ func (r *BillingRepository) UpsertSubscription(ctx context.Context, sub *billing
 		pEnd = sql.NullTime{Time: *sub.CurrentPeriodEnd, Valid: true}
 	}
 
-	err := r.db.QueryRowContext(ctx, query,
+	err = tx.QueryRowContext(ctx, query,
 		sub.UserID,
 		sub.PlanCode,
 		sub.Status,
@@ -235,7 +249,7 @@ func (r *BillingRepository) UpsertSubscription(ctx context.Context, sub *billing
 		return err
 	}
 
-	return nil
+	return tx.Commit()
 }
 
 // GetSubscriptionByProviderSubID retrieves a subscription record using the Stripe subscription ID.

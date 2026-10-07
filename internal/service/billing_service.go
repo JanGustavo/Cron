@@ -112,3 +112,8 @@ func (e *EntitlementEngine) GetSubscription(ctx context.Context, userID string) 
 func (e *EntitlementEngine) GetJobGrace(ctx context.Context, userID string) (*billing.JobGrace, error) {
 	return e.repo.GetJobGrace(ctx, userID)
 }
+
+func (e *EntitlementEngine) AsaasStorage() AsaasRepository {
+	repo, _ := e.repo.(AsaasRepository)
+	return repo
+}

@@ -17,6 +17,7 @@ done
 # Verify the new additive policy migration can be rolled back and reapplied.
 "$audit_pg_bin/psql" -h "$audit_cluster_dir" -p 55447 -d postgres -v ON_ERROR_STOP=1 -q -f migrations/021_job_downgrade_grace.down.sql >/dev/null
 "$audit_pg_bin/psql" -h "$audit_cluster_dir" -p 55447 -d postgres -v ON_ERROR_STOP=1 -q -f migrations/021_job_downgrade_grace.up.sql >/dev/null
+"$audit_pg_bin/psql" -h "$audit_cluster_dir" -p 55447 -d postgres -v ON_ERROR_STOP=1 -q -f migrations/022_asaas_reconciliation.down.sql >/dev/null
+"$audit_pg_bin/psql" -h "$audit_cluster_dir" -p 55447 -d postgres -v ON_ERROR_STOP=1 -q -f migrations/022_asaas_reconciliation.up.sql >/dev/null
 CRONFLOW_MONITOR_TEST_DSN="host=$audit_cluster_dir port=55447 dbname=postgres sslmode=disable" \
-CRONFLOW_BILLING_AUDIT_OUTPUT="${CRONFLOW_BILLING_AUDIT_OUTPUT:-$PWD/docs/assets/billing-current-policy-results.json}" \
-go test ./internal/repository/postgres -run 'TestJobDowngradeGraceIntegration|TestBillingLifecycleAudit|TestLogRetentionMatchesAccountEntitlements|TestAvatarProfileIntegration|TestMonitorPersistenceIntegration' -count=1 -v
+go test -race ./internal/repository/postgres -run 'TestJobDowngradeGraceIntegration|TestAsaasReconciliationIntegration|TestLogRetentionMatchesAccountEntitlements|TestAvatarProfileIntegration|TestMonitorPersistenceIntegration' -count=1 -v

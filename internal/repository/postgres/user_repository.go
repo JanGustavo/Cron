@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/JanGustavo/Cron/internal/domain/billing"
 	"github.com/JanGustavo/Cron/internal/domain/project"
 	"github.com/JanGustavo/Cron/internal/domain/user"
 )
@@ -422,11 +423,13 @@ func (r *UserRepository) ResetAIQueriesUsed(ctx context.Context, userID string) 
 
 // UpdateUserPlanByAdmin altera o plano de um usuário diretamente pela administração e atualiza a assinatura.
 func (r *UserRepository) UpdateUserPlanByAdmin(ctx context.Context, userID, newPlan string) error {
-	// Subscription trigger applies exactly the same policy as provider events.
-	_, err := r.db.ExecContext(ctx, `INSERT INTO subscriptions(user_id,plan_code,status,billing_provider,current_period_start,current_period_end,cancel_at_period_end)
- VALUES($1,$2::varchar,'active','manual',NOW(),CASE WHEN $2::varchar='pro' THEN NOW()+INTERVAL '30 days' ELSE NULL END,false)
- ON CONFLICT(user_id) DO UPDATE SET plan_code=EXCLUDED.plan_code,status='active',billing_provider='manual',current_period_start=EXCLUDED.current_period_start,current_period_end=EXCLUDED.current_period_end,cancel_at_period_end=false,updated_at=NOW()`, userID, newPlan)
-	return err
+	now := time.Now()
+	sub := &billing.Subscription{UserID: userID, PlanCode: newPlan, Status: "active", BillingProvider: "manual", CurrentPeriodStart: &now}
+	if newPlan == "pro" {
+		end := now.Add(30 * 24 * time.Hour)
+		sub.CurrentPeriodEnd = &end
+	}
+	return NewBillingRepository(r.db).UpsertSubscription(ctx, sub)
 }
 
 // CountTotalPlatformJobs conta o total de jobs ativos na plataforma inteira.

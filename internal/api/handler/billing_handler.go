@@ -2,9 +2,9 @@ package handler
 
 import (
 	"bytes"
+	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -20,12 +20,14 @@ import (
 type BillingHandler struct {
 	entitlementEngine *service.EntitlementEngine
 	cfg               *config.Config
+	asaasSync         *service.AsaasReconciler
 }
 
 func NewBillingHandler(entitlementEngine *service.EntitlementEngine, cfg *config.Config) *BillingHandler {
 	return &BillingHandler{
 		entitlementEngine: entitlementEngine,
 		cfg:               cfg,
+		asaasSync:         service.NewAsaasReconciler(entitlementEngine.AsaasStorage(), service.NewAsaasClient(cfg.AsaasAPIKey, cfg.AppEnv == "production" || strings.HasPrefix(cfg.AsaasAPIKey, "$aact_prod_"))),
 	}
 }
 
@@ -91,32 +93,13 @@ func (h *BillingHandler) CreateCheckoutSession(w http.ResponseWriter, r *http.Re
 			return
 		}
 
-		subRecord, err := h.entitlementEngine.GetSubscription(r.Context(), proj.UserID)
-		if err != nil {
-			log.Printf("Erro ao consultar assinatura local: %v", err)
+		if asaasResp.ID == "" || asaasResp.URL == "" {
+			writeError(w, http.StatusBadGateway, "Resposta de checkout inválida")
+			return
 		}
-		nowTime := time.Now()
-		if subRecord == nil {
-			subRecord = &billing.Subscription{
-				UserID:                 proj.UserID,
-				PlanCode:               "pro",
-				Status:                 "pending",
-				BillingProvider:        "asaas",
-				ProviderSubscriptionID: &asaasResp.ID,
-				CreatedAt:              nowTime,
-				UpdatedAt:              nowTime,
-			}
-		} else {
-			subRecord.BillingProvider = "asaas"
-			if subRecord.Status != "active" || (subRecord.CurrentPeriodEnd != nil && !subRecord.CurrentPeriodEnd.After(nowTime)) {
-				subRecord.Status = "pending"
-				subRecord.ProviderSubscriptionID = &asaasResp.ID
-			}
-			subRecord.PlanCode = "pro"
-			subRecord.UpdatedAt = nowTime
-		}
-		if err := h.entitlementEngine.UpsertSubscription(r.Context(), subRecord); err != nil {
-			log.Printf("Erro ao atualizar assinatura pendente no banco: %v", err)
+		if err := h.asaasSync.RecordCheckout(r.Context(), proj.UserID, asaasResp.ID, cycle); err != nil {
+			writeError(w, http.StatusInternalServerError, "Não foi possível registrar o checkout")
+			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -226,11 +209,11 @@ func (h *BillingHandler) Webhook(w http.ResponseWriter, r *http.Request) {
 func (h *BillingHandler) callAsaas(method, path string, body interface{}) ([]byte, int, error) {
 	var asaasBaseURL string
 	if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_hmlg_") {
-		asaasBaseURL = "https://sandbox.asaas.com/api/v3"
+		asaasBaseURL = "https://api-sandbox.asaas.com/v3"
 	} else if strings.HasPrefix(h.cfg.AsaasAPIKey, "$aact_prod_") || h.cfg.AppEnv == "production" {
 		asaasBaseURL = "https://api.asaas.com/v3"
 	} else {
-		asaasBaseURL = "https://sandbox.asaas.com/api/v3"
+		asaasBaseURL = "https://api-sandbox.asaas.com/v3"
 	}
 
 	url := asaasBaseURL + path
@@ -266,196 +249,33 @@ func (h *BillingHandler) callAsaas(method, path string, body interface{}) ([]byt
 	return respBody, resp.StatusCode, nil
 }
 
-type AsaasWebhookPayload struct {
-	Event        string             `json:"event"`
-	Payment      *AsaasPayment      `json:"payment,omitempty"`
-	Subscription *AsaasSubscription `json:"subscription,omitempty"`
-}
+type AsaasWebhookPayload = billing.AsaasEvent
+type AsaasPayment = billing.AsaasPayment
+type AsaasSubscription = billing.AsaasSubscription
 
-type AsaasPayment struct {
-	ID                string  `json:"id"`
-	Customer          string  `json:"customer"`
-	Subscription      string  `json:"subscription"`
-	PaymentLink       string  `json:"paymentLink"`
-	Status            string  `json:"status"`
-	Value             float64 `json:"value"`
-	BillingType       string  `json:"billingType"`
-	ExternalReference string  `json:"externalReference"`
-}
-
-type AsaasSubscription struct {
-	ID                string  `json:"id"`
-	Customer          string  `json:"customer"`
-	Status            string  `json:"status"`
-	Value             float64 `json:"value"`
-	BillingType       string  `json:"billingType"`
-	ExternalReference string  `json:"externalReference"`
-}
-
+func (h *BillingHandler) SetAsaasReconciler(sync *service.AsaasReconciler) { h.asaasSync = sync }
 func (h *BillingHandler) ProcessAsaasWebhook(w http.ResponseWriter, r *http.Request, payload []byte, token string) {
-	if subtle.ConstantTimeCompare([]byte(token), []byte(h.cfg.AsaasWebhookToken)) != 1 {
-		log.Printf("Tentativa de acesso ao webhook Asaas com token inválido")
-		writeError(w, http.StatusUnauthorized, "Token de autenticação do webhook inválido")
+	if h.cfg.AsaasWebhookToken == "" || token == "" || subtle.ConstantTimeCompare([]byte(token), []byte(h.cfg.AsaasWebhookToken)) != 1 {
+		writeError(w, http.StatusUnauthorized, "Token de webhook inválido")
 		return
 	}
-
-	var payloadData AsaasWebhookPayload
-	if err := json.Unmarshal(payload, &payloadData); err != nil {
-		log.Printf("Erro ao fazer parse do payload Asaas: %v", err)
+	var event billing.AsaasEvent
+	if err := json.Unmarshal(payload, &event); err != nil || event.Event == "" {
 		writeError(w, http.StatusBadRequest, "Payload inválido")
 		return
 	}
-
-	eventID := ""
-	if payloadData.Payment != nil {
-		eventID = payloadData.Payment.ID + "_" + payloadData.Event
-	} else if payloadData.Subscription != nil {
-		eventID = payloadData.Subscription.ID + "_" + payloadData.Event
-	} else {
-		eventID = fmt.Sprintf("%d_%s", time.Now().UnixNano(), payloadData.Event)
-	}
-
-	billingEvent, isDuplicate, err := h.entitlementEngine.RegisterBillingEvent(
-		r.Context(),
-		"asaas",
-		eventID,
-		payloadData.Event,
-		nil,
-		payload,
-	)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	status, err := h.asaasSync.ProcessEvent(ctx, payload)
 	if err != nil {
-		log.Printf("Erro ao registrar evento Asaas: %v", err)
-		writeError(w, http.StatusInternalServerError, "Erro interno ao processar transação")
-		return
-	}
-
-	if isDuplicate {
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ignored_duplicate"}`))
-		return
-	}
-
-	var processingError error
-
-	switch payloadData.Event {
-	case "PAYMENT_RECEIVED", "PAYMENT_CONFIRMED":
-		if payloadData.Payment != nil {
-			pay := payloadData.Payment
-			var localSub *billing.Subscription
-
-			if pay.PaymentLink != "" {
-				localSub, err = h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), pay.PaymentLink)
-			}
-			if (err != nil || localSub == nil) && pay.Subscription != "" {
-				localSub, err = h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), pay.Subscription)
-			}
-			if (err != nil || localSub == nil) && pay.ExternalReference != "" {
-				localSub, err = h.entitlementEngine.GetSubscription(r.Context(), pay.ExternalReference)
-			}
-
-			if localSub != nil {
-				now := time.Now()
-				var nextPeriod time.Time
-
-				// Se o valor for maior que R$ 150, é plano anual (+1 ano), senão mensal (+1 mês)
-				if pay.Value > 150.0 {
-					nextPeriod = now.AddDate(1, 0, 0)
-				} else {
-					nextPeriod = now.AddDate(0, 1, 0)
-				}
-
-				localSub.PlanCode = "pro"
-				localSub.Status = "active"
-				localSub.BillingProvider = "asaas"
-				localSub.ProviderCustomerID = &pay.Customer
-				if pay.Subscription != "" {
-					localSub.ProviderSubscriptionID = &pay.Subscription
-				} else if pay.PaymentLink != "" {
-					localSub.ProviderSubscriptionID = &pay.PaymentLink
-				}
-				localSub.CurrentPeriodStart = &now
-				localSub.CurrentPeriodEnd = &nextPeriod
-				localSub.CancelAtPeriodEnd = false
-
-				processingError = h.entitlementEngine.UpsertSubscription(r.Context(), localSub)
-			} else {
-				log.Printf("Aviso: Pagamento Asaas recebido mas nenhuma assinatura local correspondente foi encontrada para link=%s, sub=%s, user=%s", pay.PaymentLink, pay.Subscription, pay.ExternalReference)
-			}
+		log.Printf("Asaas webhook: %v", err)
+		if status != "pending_retry" {
+			writeError(w, http.StatusServiceUnavailable, "Não foi possível persistir o evento")
+			return
 		}
-
-	case "PAYMENT_REFUNDED", "PAYMENT_CHARGEBACK_REQUESTED":
-		if payloadData.Payment != nil {
-			pay := payloadData.Payment
-			var localSub *billing.Subscription
-			if pay.Subscription != "" {
-				localSub, _ = h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), pay.Subscription)
-			}
-			if localSub == nil && pay.PaymentLink != "" {
-				localSub, _ = h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), pay.PaymentLink)
-			}
-			if localSub == nil && pay.ExternalReference != "" {
-				localSub, _ = h.entitlementEngine.GetSubscription(r.Context(), pay.ExternalReference)
-			}
-
-			if localSub != nil {
-				localSub.PlanCode = "free"
-				localSub.Status = "refunded"
-				localSub.CancelAtPeriodEnd = false
-				processingError = h.entitlementEngine.UpsertSubscription(r.Context(), localSub)
-				log.Printf("Assinatura estornada/reembolsada para o usuário %s", localSub.UserID)
-			}
-		}
-
-	case "PAYMENT_OVERDUE":
-		if payloadData.Payment != nil {
-			pay := payloadData.Payment
-			var localSub *billing.Subscription
-			if pay.Subscription != "" {
-				localSub, _ = h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), pay.Subscription)
-			}
-			if localSub == nil && pay.PaymentLink != "" {
-				localSub, _ = h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), pay.PaymentLink)
-			}
-			if localSub != nil {
-				localSub.Status = "past_due"
-				processingError = h.entitlementEngine.UpsertSubscription(r.Context(), localSub)
-				log.Printf("Pagamento em atraso registrado para o usuário %s", localSub.UserID)
-			}
-		}
-
-	case "SUBSCRIPTION_DELETED":
-		if payloadData.Subscription != nil {
-			asSub := payloadData.Subscription
-			localSub, err := h.entitlementEngine.GetSubscriptionByProviderSubID(r.Context(), asSub.ID)
-			if err == nil && localSub != nil {
-				if localSub.CurrentPeriodEnd != nil && localSub.CurrentPeriodEnd.After(time.Now()) && localSub.Status == "active" {
-					localSub.CancelAtPeriodEnd = true
-				} else {
-					localSub.PlanCode = "free"
-					localSub.Status = "canceled"
-					localSub.CancelAtPeriodEnd = false
-				}
-				processingError = h.entitlementEngine.UpsertSubscription(r.Context(), localSub)
-			}
-		}
+		// Durable receipt is acknowledged even if provider verification must retry.
+		// Successful financial processing is marked only in the state-update transaction.
 	}
-
-	var errStr *string
-	if processingError != nil {
-		errVal := processingError.Error()
-		errStr = &errVal
-		log.Printf("Erro ao processar regras do webhook Asaas: %v", processingError)
-	}
-
-	if err := h.entitlementEngine.MarkEventProcessed(r.Context(), billingEvent.ID, errStr); err != nil {
-		log.Printf("Erro ao marcar evento Asaas como processado: %v", err)
-	}
-
-	if processingError != nil {
-		writeError(w, http.StatusInternalServerError, "Erro ao concluir regras de negócio do webhook")
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"processed"}`))
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": status})
 }
