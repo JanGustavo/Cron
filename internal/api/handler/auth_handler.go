@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"regexp"
 	"strings"
@@ -83,6 +84,28 @@ type AuthResponse struct {
 }
 
 var cpfRegexp = regexp.MustCompile(`[^\d]`)
+var signupNameRegexp = regexp.MustCompile(`^[\p{L}\p{M}\s'-]+$`)
+var passwordUppercaseRegexp = regexp.MustCompile(`[A-Z]`)
+var passwordLowercaseRegexp = regexp.MustCompile(`[a-z]`)
+var passwordNumberRegexp = regexp.MustCompile(`[0-9]`)
+var passwordSpecialRegexp = regexp.MustCompile(`[^A-Za-z0-9]`)
+
+func isValidSignupPassword(password string) bool {
+	return len(password) >= 8 &&
+		len(password) <= 128 &&
+		passwordUppercaseRegexp.MatchString(password) &&
+		passwordLowercaseRegexp.MatchString(password) &&
+		passwordNumberRegexp.MatchString(password) &&
+		passwordSpecialRegexp.MatchString(password)
+}
+
+func isValidSignupEmail(email string) bool {
+	if len(email) == 0 || len(email) > 254 || strings.TrimSpace(email) != email {
+		return false
+	}
+	parsed, err := mail.ParseAddress(email)
+	return err == nil && parsed.Address == email
+}
 
 func isValidCPF(cpf string) bool {
 	cleanCPF := cpfRegexp.ReplaceAllString(cpf, "")
@@ -209,6 +232,25 @@ func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
 
 	if req.Email == "" || req.Password == "" || req.ProjectName == "" || req.FullName == "" {
 		writeError(w, http.StatusBadRequest, "Todos os campos (email, password, project_name, full_name) são obrigatórios")
+		return
+	}
+	req.Email = strings.ToLower(strings.TrimSpace(req.Email))
+	req.ProjectName = strings.TrimSpace(req.ProjectName)
+	req.FullName = strings.TrimSpace(req.FullName)
+	if !isValidSignupEmail(req.Email) {
+		writeError(w, http.StatusBadRequest, "Informe um e-mail válido com no máximo 254 caracteres")
+		return
+	}
+	if len(req.ProjectName) < 2 || len(req.ProjectName) > 100 {
+		writeError(w, http.StatusBadRequest, "O nome do projeto deve ter entre 2 e 100 caracteres")
+		return
+	}
+	if len([]rune(req.FullName)) < 6 || len([]rune(req.FullName)) > 120 || !signupNameRegexp.MatchString(req.FullName) || len(strings.Fields(req.FullName)) < 2 {
+		writeError(w, http.StatusBadRequest, "O nome completo deve ter entre 6 e 120 caracteres e conter nome e sobrenome")
+		return
+	}
+	if !isValidSignupPassword(req.Password) {
+		writeError(w, http.StatusBadRequest, "A senha deve ter entre 8 e 128 caracteres, incluindo maiúscula, minúscula, número e símbolo")
 		return
 	}
 
@@ -814,7 +856,7 @@ func (h *AuthHandler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resetLink := fmt.Sprintf("%s/reset-password?token=%s", h.cfg.FrontendURL, token)
+	resetLink := fmt.Sprintf("%s/reset-password?token=%s", strings.TrimRight(h.cfg.FrontendURL, "/"), url.QueryEscape(token))
 	go func(email, link string) {
 		if err := h.mailService.SendPasswordResetEmail(email, link); err != nil {
 			log.Printf("AuthHandler.ForgotPassword (background): falha ao enviar e-mail: %v", err)

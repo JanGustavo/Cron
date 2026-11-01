@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"html"
 	"log"
 	"net/http"
 	"net/smtp"
@@ -73,7 +74,8 @@ func (s *MailService) sendViaResend(to, subject, body string) error {
 // Se as configurações de SMTP não estiverem preenchidas, ele apenas simula o envio imprimindo no console.
 func (s *MailService) SendPasswordResetEmail(to, resetLink string) error {
 	subject := "Recuperação de Senha - CronFlow"
-	
+	escapedResetLink := html.EscapeString(resetLink)
+
 	// Template HTML elegante e premium
 	body := fmt.Sprintf(`<!DOCTYPE html>
 <html>
@@ -107,7 +109,7 @@ func (s *MailService) SendPasswordResetEmail(to, resetLink string) error {
         <p class="footer">Se você não solicitou esta alteração, por favor ignore este e-mail.<br>&copy; 2026 CronFlow. Todos os direitos reservados.</p>
     </div>
 </body>
-</html>`, resetLink, resetLink, resetLink)
+</html>`, escapedResetLink, escapedResetLink, escapedResetLink)
 
 	if s.resendKey != "" {
 		err := s.sendViaResend(to, subject, body)
@@ -148,7 +150,7 @@ func (s *MailService) SendPasswordResetEmail(to, resetLink string) error {
 // SendVerificationEmail envia o link de confirmação de conta para o e-mail do usuário.
 func (s *MailService) SendVerificationEmail(to, verificationLink string) error {
 	subject := "Confirme seu E-mail - CronFlow"
-	
+
 	body := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>
@@ -574,6 +576,7 @@ func (s *MailService) SendDowngradeWarningEmail(to, frontendURL string, daysRema
 	return smtp.SendMail(addr, auth, s.from, []string{to}, msg)
 }
 
+
 // SendRawEmail envia um e-mail HTML genérico.
 func (s *MailService) SendRawEmail(to, subject, body string) error {
 	if s.resendKey != "" {
@@ -599,5 +602,3 @@ func (s *MailService) SendRawEmail(to, subject, body string) error {
 
 	return smtp.SendMail(addr, auth, s.from, []string{to}, msg)
 }
-
-
