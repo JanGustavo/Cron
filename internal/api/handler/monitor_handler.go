@@ -162,7 +162,8 @@ func (h *MonitorHandler) CreateRule(w http.ResponseWriter, r *http.Request) {
 		alertEmail = *input.AlertEmail
 	}
 
-	isEnabled := true
+	// Job payload validation is opt-in. Keep the existing API metrics default.
+	isEnabled := input.JobID == nil || *input.JobID == "" || *input.JobID == "all" || *input.JobID == "global"
 	if input.IsEnabled != nil {
 		isEnabled = *input.IsEnabled
 	}

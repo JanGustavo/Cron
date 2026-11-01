@@ -106,3 +106,45 @@ func TestCandidatePreviewHTTPContract(t *testing.T) {
 		t.Fatalf("candidate lost scope/precision: %+v project=%s", result, repo.project)
 	}
 }
+
+type optInRepository struct{ *previewReadOnlyRepository }
+
+func (*optInRepository) CreateRule(_ context.Context, rule *monitor.MonitorRule) (*monitor.MonitorRule, error) {
+	return rule, nil
+}
+
+func TestJobValidationRequiresExplicitActivation(t *testing.T) {
+	const secret = "test-monitor-default-secret"
+	token, err := auth.GenerateToken("user", "test@example.com", "project", "free", secret, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := NewMonitorHandler(service.NewMonitorService(&optInRepository{&previewReadOnlyRepository{belongs: true}}, nil, secret))
+	protected := middleware.Auth(nil, secret)(http.HandlerFunc(h.CreateRule))
+	for _, tc := range []struct {
+		name, extra string
+		enabled     bool
+	}{
+		{"job omitted activation", `,"job_id":"f034c234-57d5-49f9-b466-e0e072037e93"`, false},
+		{"job explicit activation", `,"job_id":"f034c234-57d5-49f9-b466-e0e072037e93","is_enabled":true`, true},
+		{"job explicit deactivation", `,"job_id":"f034c234-57d5-49f9-b466-e0e072037e93","is_enabled":false`, false},
+		{"API metrics unchanged", ``, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/monitor/rules", strings.NewReader(`{"name":"Status","key":"/status","operator":"eq","threshold_value":"ok","value_type":"string"`+tc.extra+`}`))
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			protected.ServeHTTP(rec, req)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+			}
+			var rule monitor.MonitorRule
+			if err := json.Unmarshal(rec.Body.Bytes(), &rule); err != nil {
+				t.Fatal(err)
+			}
+			if rule.IsEnabled != tc.enabled {
+				t.Fatalf("enabled=%v want=%v", rule.IsEnabled, tc.enabled)
+			}
+		})
+	}
+}

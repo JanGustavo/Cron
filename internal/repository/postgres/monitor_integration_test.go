@@ -72,6 +72,26 @@ func TestMonitorPersistenceIntegration(t *testing.T) {
 	if err != nil || len(snapshot) != 1 || snapshot[0].Mode != monitor.ModeRequireSuccess || snapshot[0].Reason != "condition_not_met" {
 		t.Fatalf("snapshot mismatch: %+v %v", snapshot, err)
 	}
+	// A disabled success condition stays saved but does not evaluate or block execution.
+	rule.IsEnabled = false
+	if _, err := repo.UpdateRule(ctx, rule); err != nil {
+		t.Fatal(err)
+	}
+	active, err := repo.ListRulesByJob(ctx, projectID, jobID)
+	if err != nil || len(active) != 0 {
+		t.Fatalf("disabled condition evaluated: %+v %v", active, err)
+	}
+	if !monitor.SuccessConditionsPassed(monitor.EvaluateResponse(active, monitor.Response{Received: true, Body: []byte(`{"synced":false}`)})) {
+		t.Fatal("disabled condition blocked success")
+	}
+	rule.IsEnabled = true
+	if _, err := repo.UpdateRule(ctx, rule); err != nil {
+		t.Fatal(err)
+	}
+	active, err = repo.ListRulesByJob(ctx, projectID, jobID)
+	if err != nil || len(active) != 1 || active[0].ID != rule.ID {
+		t.Fatalf("reactivation lost condition: %+v %v", active, err)
+	}
 	if _, err := db.ExecContext(ctx, `DELETE FROM jobs WHERE id=$1`, jobID); err != nil {
 		t.Fatal(err)
 	}
